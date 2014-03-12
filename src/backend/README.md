@@ -93,6 +93,23 @@ In twisted, node.putChild() must have its first argument **NOT** end with a '/'.
 
 In OL3, when loading Vector layers, you (for some currently unknown reason) must pass 'renderer: ol.RendererHint.CANVAS' to the Map constructor or else they will fail with a nil ptr exception in the bowels of OL.
 
+New additions regarding loading a simulation:
+The file load_sim.py has been added to /src/backend. What this does is import all the needed files from the models folder. All the nasty
+work is done here, such as configuration the initial simulation.
+
+In sim_server.py (copied Nick's server.py), you need two lines to get the Simulation object:
+import load_sim
+sim = load_sim.sim
+
+Then running sim.step() returns a Python dictionary of the next year in the simulation.
+Note: Javascript Console is giving me an error about how it doesn't like to be formatted, BUT, the server sends 
+it just fine without halting.
+
+What if we moved models inside backend? This reduces a TON of issues. For instance, certain counties number 58-341 (in guatemala.json) 
+fail to load for whatever reason when being called from outside the directory. I already altered map.py, yet this problem still persists.
+
+If we make models a subdirectory of backend, we wouldn't have this problem whatsoever. 
+
 
 ## Compatibility
 

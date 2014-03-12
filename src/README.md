@@ -1,5 +1,9 @@
 # Model Explorer Developer's Guide
 
+Welcome to Modex! Please excuse the construction dust.
+
+If your copy of modex isn't working, make sure your [dependencies](#dependencies) are up to date. 
+
 ## Folder Layout
 
 Each folder should have a README that describes its content in more detail, but as an overview:
@@ -72,7 +76,7 @@ Finally, once that is done, run
 $ cd ~/modex
 $ sudo pip2 install -r requirements.txt
 ```
-to get any leftovers.
+to get any leftovers. **You also need to run this when requirements.txt changes**.
 
 Arranging your install this way is more immediately tedious, but it saves you from having to ```workon modexenv``` every day, and saves space on your disk. Do be aware that when you do system updates the updates have a small chance of conflicting with the pip-installed packages, and that if that happens remember you did it yourself.
 
@@ -86,7 +90,7 @@ You will probably also want **_these tools_** to make dealing with data easier:
 * [IPython](http://ipython.org), which gives a python command shell _with tab-completion_, and Mathematica-style [notebooks](http://nbviewer.ipython.org).
 
 
-For a brain dump of everything you might need to know about getting set up on OS X, see [here](https://github.com/majdal/modex/wiki/Step-by-step-installation-instructions-for-Mac-users). Similarly, see [here]https://github.com/majdal/modex/wiki/Step-by-step-installation-instructions-for-Windows-users) for Windows.
+For a brain dump of everything you might need to know about getting set up on OS X, see [here](../wiki/TechGuides/Step-by-step-installation-instructions-for-Mac-users.md). Similarly, see [here](../wiki/TechGuides/Step-by-step-installation-instructions-for-Windows-users.md) for Windows.
 
 
 ## Hacking

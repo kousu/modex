@@ -41,10 +41,11 @@ class PubSubProtocol(WebSocketServerProtocol):
 #
     
     def onOpen(self):
-        #TODO(kousu): ask the parent factory if it's okay if we join, here? like, self.factory.subscribe(), which has the option of returning false?
+        #TODO(kousu): ask the parent factory if it's okay if we join before we join, here? like, self.factory.subscribe(), which has the option of returning false?
         self.factory._listeners.append(self)
     
     def onMessage(self, payload, isBinary):
+    	# pass the payload up to the PubSubBroker
         self.factory.send(payload, isBinary)
     
     def onClose(self, wasClean, code, reason):
@@ -61,8 +62,8 @@ class PubSubBroker(WebSocketServerFactory):
     implemented as a Twisted factory for websockets
     """
     protocol = PubSubProtocol
-    _brokers = {}         #for debugging: unusued_broker_id only increments
-    _unused_broker_id = 0 #this makes IDs shorter, ordered, and more legible; it's not actually good code
+    _brokers = {}         #for debugging: instead of trying to trace python object IDs, use a short, unique,
+    _unused_broker_id = 0 #and predictably incrementing ID. This code needs to die in the stable version.
     
     def __init__(self, *args, **kwargs):
         WebSocketServerFactory.__init__(self, *args, **kwargs) #can't use super(); twisted and autobahn do not derive their classes from `object`

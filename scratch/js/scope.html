@@ -1,0 +1,53 @@
+<html>
+
+<head>
+
+<script src="https://code.jquery.com/jquery-1.11.0.js"></script>
+<script>
+var a = "a";
+var b = "b";
+
+//one way to get things into global scope, if you really want to do that, is to declare them there
+//but in js 
+
+
+// this function is run in 'window's scope, so any variables declared in it without using 'var' are attached to window, which is what the js console considers to be global
+
+hax = function() {
+
+var a = 1;  
+b = a + a;
+
+//how is scope?
+//is it that once a var is defined, assigning to it keeps its scope the same?
+//or is it like python, where assigning is auto-local?
+
+var c = b+b+"c"
+d = "totally new"
+}
+
+
+
+// in global scope
+// see what we did
+setTimeout(function() {
+  console.log("a=",a) //'a', because in the onload we used 'var' which made a local
+  console.log("b=",b) //2, because we didn't declare b 'var'
+  console.log("d=",d); //just to drive home the point
+  console.log("c=",c); //ReferenceError: c is not defined
+}, 3000)
+
+
+//it doesn't seem to matter whether we use jquery or the native method
+//hax() always gets run in global scope
+//window.onload = hax
+//$(document).ready(hax)
+$(hax)
+</script>
+</head>
+
+<body>
+
+
+</body>
+</html>

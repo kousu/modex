@@ -4,3 +4,5 @@ lightbulb
 *.pyc
 .idea
 TODO.*
+.swp
+mapcache

@@ -1,0 +1,4 @@
+[{"name": "tax", "type":"priceIntervention", "data":[5, "duramSeed", 10], "scenario": 1}, 
+  {"name": "tax", "type":"priceIntervention", "data":[7, "duramSeedOrganic", 0.001], "scenario": 1}]
+
+

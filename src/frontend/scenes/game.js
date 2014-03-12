@@ -22,23 +22,23 @@ Crafty.scene('game', function() {
     layers: [watercolor,],
     view: new ol.View2D({
       center: ol.proj.transform([-80.5, 43.45], 'EPSG:4326', 'EPSG:3857'), //these coordinates are not what you'll find on Wikipedia or in the World Fact Book. The Wikipedia coordinates, 43,28,0 N by 80,30,0W are A) in Degrees-Minutes-Seconds B) in WGS84 (so even once converted to decimal degrees they're slightly off)
-      //center: ol.proj.transform([-122.416667, 37.783333], 'EPSG:4326', 'EPSG:3857'),
       zoom: 7
     }) 
   });
-  //$('#map').show();
 
-  Crafty.e('2D, DOM, Text')
-    .attr({ x: 100, y: 190 })
-    .text('Victory!');
+//  Crafty.e('2D, Canvas, Color').attr({x: 0, y: 0, w: 100, h: 100}).color('#F00');
+  plusButton = Crafty.e('AddScenario');
+/*
+  Crafty.e('Timeline', {
+    init: function(){
+      this.requires('2D, Canvas, Grid, Color');
+      this.color('rgb(20, 125, 40)');
+    }
+  });
+  this.timeline1 = new Crafty.e('Timeline').at(100,100);*/
 
-  this.restart_game = this.bind('KeyDown', function() {
-      Crafty.scene('game');
-    });
-  }, function() {
-    this.unbind('KeyDown', this.restart_game);
+  //Crafty.e("Timeline").timeline('10');
 });
-
 /* 
 
 Crafty.scene('game', function() {

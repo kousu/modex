@@ -54,9 +54,9 @@ $(function() {
     }
     data_socket.onmessage = function(d) {
       d = JSON.parse(d.data);
-      console.log("received data from (plain) websocket:")
+      //console.log("received data from (plain) websocket:")
       d.date = parseDate(d.date)
-      console.log(d);
+      //console.log(d);
       scope.data.push(d)
       draw()
     }
@@ -79,9 +79,9 @@ $(function() {
    function draw() {
     data = scope.data; //hacks
       
-    console.log("plotting this data array:", data)
+    //console.log("plotting this data array:", data)
       
-    console.log("creating svg")
+    //console.log("creating svg")
     $("svg").detach() //kill old svg, if there is one
     var svg = d3.select("#graph").append("svg")
         .attr("width", width + margin.left + margin.right)

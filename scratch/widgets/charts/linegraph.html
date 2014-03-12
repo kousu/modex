@@ -1,0 +1,124 @@
+<!DOCTYPE html>
+<meta charset="utf-8">
+<link href="nv.d3.css" rel="stylesheet" type="text/css">
+<body class='with-3d-shadow with-transitions'>
+
+<button onclick="makeData();">Generate More Data</button>
+
+<div id="chart1" style="width: 500px; height: 300px;" >
+  <svg></svg>
+</div>
+
+<script src="d3.v3.js"></script>
+<script src="nv.d3.js"></script>
+
+<script>
+var chart;
+
+// DEFINE AND CREATE THE CHART
+//
+nv.addGraph(function() {
+  chart = nv.models.lineChart()
+  .options({
+    margin: {left: 100, bottom: 50},  // spacing for x-axis and y-axis labels
+    showXAxis: true,
+    showYAxis: true,
+    showLegend: false,
+  })
+  .forceX([0,100])   // sets the x-axis range to always include 0 and 100
+  ;
+
+  chart.xAxis
+    .axisLabel("Time")
+    .tickFormat(d3.format(',.1f'))
+    ;
+
+  chart.yAxis
+    .axisLabel('GDP')
+    .tickFormat(d3.format(',.2f'))
+    ;
+    
+  chart.x(function(d, i) { return d.x});   // use the .x value for x-axis 
+                                           //  location (rather than i)
+  makeData();
+
+  nv.utils.windowResize(chart.update);
+
+  return chart;
+});
+
+
+// PUT NEW DATA INTO THE CHART
+
+function makeData() {
+    generateMoreData();      // make some more data
+  
+    d3.select('#chart1 svg') // update the chart with the data
+        .datum(graphData)
+        .call(chart);
+}
+
+
+
+
+// AND NOW FOR CODE TO JUST RANDOMLY GENERATE DATA FOR THE CHART
+
+
+// Just to be pretty
+function getRandomColor() {
+    var letters = '0123456789ABCDEF'.split('');
+    var color = '#';
+    for (var i = 0; i < 6; i++ ) {
+        color += letters[Math.round(Math.random() * 15)];
+    }
+    return color;
+}
+
+// All the data to be plotted in the chart
+// in a global variable
+var graphData = [];
+
+// the data format for the chart looks like this:
+/*
+[
+    {
+        values: [{x:0, y:0}, {x:1, y:0.5}, {x:2, y:-0.5}],
+        key: 'first line',
+        color: 'blue',
+    },
+    {
+        values: [{x:-0.1, y:0}, {x:0, y:99}, {x:1000, y:-3}],
+        key: 'second line',
+        color: 'red',
+    },
+    {
+        values: [{x:0, y:0}, {x:1, y:null}, {x:2, y:18}],   // use null for unknown data
+        key: 'third line',
+        color: 'green',
+    }
+]    
+*/
+
+function generateMoreData() {
+    // once a line gets enough data points, start a new one
+    if (graphData.length == 0 || 
+        graphData[graphData.length-1].values.length>=100) {
+        
+        new_line = {
+            values: [{x:0, y:0}],               // data to plot
+            key: 'run ' + graphData.length,     // label (for mouseover)
+            color: getRandomColor()             // color
+            }
+            
+       graphData.push(new_line);
+    }
+    
+    // make 10 new data points and add them on the end
+    data = graphData[graphData.length-1].values;
+    for (var i = 1; i <= 10; i++) {
+        data.push({x:data.length, y: data[data.length-1].y+(Math.random()-0.5)});
+    }    
+    
+}
+
+</script>

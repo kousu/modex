@@ -1,0 +1,14 @@
+{"activity_type":"magic",
+"activity_time":7,
+"equipment": ["tractor", "wheelbarrow"],
+"products": {
+    "duramSeed": -5,
+    "nitrogen": -10,
+    "carbon": 20,
+    "soil": -5,
+    "labour": -2000,
+    "certification": 0,
+    "duram": 1000000,
+    "dolphin": -87
+    }
+}

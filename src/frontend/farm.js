@@ -98,6 +98,13 @@ var farm = function($) {
             });
 
 
+            // load game scene sprite
+            Crafty.sprite(1, "images/game_components.png", {
+                plusButton : [10, 10, 50, 50],
+                timelineBackground : [70, 20, 500, 25],
+            });
+
+
 
 
 

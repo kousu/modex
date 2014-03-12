@@ -48,7 +48,8 @@ import json
 
 # TODO(kousu): set up WAMP and use it to push messages instead of using a 'raw' websocket
 
-import random
+
+import random #XXX this has been moved to models/beta.py, but is copied here because instead of writing a model-loading structure
 ALPHA = .5
 BETA = 10
 class Model(object):
@@ -62,6 +63,7 @@ class Model(object):
     def __iter__(self): return self
     def next(self):
         return random.betavariate(self._alpha, self._beta)
+
 
 import csv
 

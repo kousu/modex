@@ -1,6 +1,9 @@
 import json
 import numpy as np
 import shelve
+import sys
+from os.path import dirname, abspath, join as pathjoin
+PROJECT_ROOT = dirname(dirname(dirname(dirname(abspath(__file__)))))
 
 def point_in_poly(x, y, poly):
     n = len(poly)
@@ -33,7 +36,10 @@ class Map:
     def __init__(self, filename):
         db = shelve.open('mapcache')
         if filename not in db:
-            self.topology = json.load(open(filename))
+            #this is being changed to an absolute filename for compability with the server
+            filename = pathjoin(PROJECT_ROOT, "src", "models", "eutopia", filename)
+            
+            self.topology = json.load(open(filename)) # changed from filename to abs_map_location
             self.arcs = self.topology['arcs']
             self.farms = self.get_farm_list()
             db[filename] = self
@@ -118,7 +124,7 @@ class Map:
         
     
         
-if __name__=='__main__':
+if __name__=='__main__':    
     map = Map('guatemala.json')
     
     for farm in map.farms:
