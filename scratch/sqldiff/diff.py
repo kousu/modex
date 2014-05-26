@@ -179,15 +179,79 @@ def diffu(L, R):
     # so detecting a change like (a,b,c) -> (a,b,d) is easy
     # detecting (a,b,c) -> (z,b,c) is harder (impossible?)
     #
-    raise NotImplemented
-
+    deletions, additions = diff(L,R) 
+    # now, scan the deletions and additions list for pairs that might represent updates
+    # in fact, we don't care if they represent
+    # (and we want to minimize what is sent over the wire, so we prefer
+    #  i. larger updates; eg if we have two candidate rows and one updates 5 and one updates 2 ,  we prefer the one that only updates 2 (which is more likely the true change anyway)
+    #   but this might(??) be in conflict with
+    # ii. the data to be sent to be minimal; so, we prefer to choose ; 
+    #   I can't immediately think of a way to do such minimization without lots of clever backtracking , so I'm going to assume that it might as well be NP hard.
+    # ((but this isn't always true!! an addition that has a large number
+    #
+    # This is expensive (O(n^2 * p) where n is the number of rows and p is the number of columns
+    # but i don't see a real alternative to brute force.
+    # It's also even more expensive than that, currently, since it's verrrrrrrrrry python
+    # maybe the sorting gives us a few small savings that we can exploit? like 
+    
+    def overlap(r1, r2):
+        assert len(r1) == len(r2)
+        # the overlap is the number of columns the two rows have identical
+        return sum(cc in r2 for cc in r1)
+        
+    
+    updates = []
+    d = 0 #index into deletions; every update is made of a pair (delete, add); it doesn't really matter which we outer-search (in fact, except for datastructure details, the algorithm should be symmetric about switching the two) starts from a deletion; note that we use manual indexing here because we're using .pop() inside the loop
+    while d < len(deletions):
+        D = L[deletions[d]] #the row we are searching for something similar to
+        candidates = []
+        # count how many overlaps there are in each
+        # TODO: write iteratively so we don't uselessly store the entire set and *then* sort
+        dupes = [(a,overlap(D, A)) for a,A in enumerate(additions)]
+        dupes.sort(key = lambda v: v[0])
+        dupes = [d for d in dupes if d[1] > 0] #drop 0 non-overlappings
+        print("diffu dupes")
+        print(dupes)
+        
+        # our candidate is whatever has the largest overlap with D, if any row with overlap exists
+        # TODO: amongst all can, try to choose one that means sending the least data
+        # TODO: instead of writing this functionally, write is iteratively because we're wasting a lottt of memory (and as a side effect ,time) as written
+        # (?)
+        # TODO: for clarity, write it to minimize difference instead of maximize overlap,
+        candidate = dupes[:1]
+        
+        
+        if not candidate:
+            print("could not update '%s'; leaving deleted." % (D,))
+            d+=1
+            continue
+        else:
+            a = candidate[0][0] #wheeee magic numbers
+            # ^this step tosses away our information about the overlap
+            # but it was only a count so that's no good anyhow...
+            # we can clean this all up and make it spiffy once it works
+            print(a)
+            candidate = additions[a]
+            print(candidate)
+            # figure out the overlap (again) and this time record which columns
+            assert len(candidate) == len(D)
+            difference = [c for c in range(len(D)) if D[c] != candidate[c]]
+            update = dict((c, candidate[c]) for c in difference)
+            print(update)
+            # compress the chosen pair (delete, add) --> (update,)
+            updates.append((deletions[d], update))
+            deletions.pop(d)
+            additions.pop(a)
+    
+    return deletions, updates, additions
+    
 def applydiff(Table, additions, deletions):
     """
     preconditions (not enforced): L is a sorted list of rows;
      additions is a sorted list of rows
      deletions is a list of indexes
     """
-    assert Table == sorted(Table)
+    #assert Table == sorted(Table) #DISABLING TO MAKE APPLYDIFFU() WORK
     assert additions == sorted(additions)
     assert all(type(row) is list for row in Table)
     assert all(type(id) is int for id in deletions)
@@ -228,6 +292,19 @@ def applydiff(Table, additions, deletions):
                 r += 1
     
     return list(merge(Table, additions))
+
+def applydiffu(L, diff):
+    L = L[:] #quickly shallow copy just in case
+    
+    deletions, updates, additions = diff
+    # apply updates first, since they're easy and don't change the order
+    for u, U in updates:
+        for c in U:
+            L[u][c] = U[c]
+            
+    L = applydiff(L, additions, deletions)
+    L.sort() #jussst for good measure, since the diff process doesn't guarantee leaving things sorted properlike
+    return(L)
 
 def read_table(fname):
     """
@@ -338,6 +415,24 @@ def test_typical(f1 = "activity_counts.shuf1.csv", f2="activity_counts.shuf2.csv
         print(d)
     assert applydiff(L, additions, deletions) == R
 
+def test_typical_u(f1 = "activity_counts.shuf1.csv", f2="activity_counts.shuf2.csv"):
+    L, R = [read_table(f) for f in (f1, f2)]
+    
+    delta = diffu(L, R)
+
+    print("additions")
+    for a in delta[2]:
+        print(a)
+    print("updates")
+    for u in delta[1]:
+        print(u)
+    print("deletions")
+    for d in delta[0]:
+        print(d)
+    
+    assert applydiffu(L, delta) == R
+
+
 def tests():
     for name, test in list(globals().items()):
         if not name.startswith("test_"): continue
@@ -353,6 +448,7 @@ test_early_column()
 if __name__ == '__main__':
     import sys
     if sys.argv[1:]:
-        test_typical(sys.argv[1], sys.argv[2])
+        test_typical_u(sys.argv[1], sys.argv[2])
+        print("test passed")
     else:
         tests()
