@@ -82,9 +82,19 @@ TODO
 * [ ] Extend to support delta compression, which is when deltas which cancel each other out in the stream (?? is )
     * ^hmmmmmmmmmm. I *think* that any single run of this algorithm should already cover that case cleanly. delta compression only comes in when you have a series of deltas in a row.
     oh that's interesting then. so we have a time-space tradeoff; or even space in two ways: "physical" space and "delta" space. Delta compression only kicks in if the recipient has lagged out and fallen behind. That is appropriate for dropbox, where the point is syncing with long-term disconnects in between. It's not so important for us, where we want a real-time stream. 
+* [ ] Look into using [LP solvers in python](https://wiki.python.org/moin/NumericAndScientific/Libraries#Mixed_Integer_and_Linear_Programming)
 
 References
 -----------
 
 * DataProtocols' [Tabular Diff Format](http://dataprotocols.org/tabular-diff-format/)
 * [DiffKit](http://www.diffkit.org/)
+    * [daff](http://paulfitz.github.io/daff/) <-- js implementation
+    
+    
+    
+Thanks
+-------
+
+* Jenny Wong <jy2wong@uwaterloo.ca> and Marc Burns <m4burns@uwaterloo.ca> for the pointer to the [Hungarian Algorithm](https://en.wikipedia.org/wiki/Hungarian_algorithm) and [Bipartite Matchings via Linear Programming](http://www.imsc.res.in/~meena/matching/lecture5.pdf).
+    
