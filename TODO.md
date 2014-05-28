@@ -143,3 +143,6 @@ and that can be worked on indepedently of the critical path.
 - [ ] Write a SQL hook that exports the database to the filesystem. It might even be possible to do this [via](http://apidoc.apsw.googlecode.com/hg/vtable.html) [python](http://multicorn.org/)
 - [ ] Write a NoSQL hook that exports the database to the filesystem.
 - [ ] Use inotify and/or FAM to watch the above for deltas and push the deltas up to the web.
+
+- [ ] linkup dataprotocols ppl to the dataarchives ppl
+ that one social science archive has a standard. it's crufty, but it exists

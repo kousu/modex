@@ -106,6 +106,11 @@ def coopy(diff):
     "translate a table diff from internal format to [coopy](http://dataprotocols.org/tabular-diff-format/) format"
     raise NotImplemented
 
+# some visualizations I want:
+#1) what is the bipartition in diffu like
+#0) in applydiff(), what is the order of d? Do true updates tend to be adjacent (because if so, this changes the approach I would take)
+#--> first need t
+
 def diff(L, R):
     """
     this prototype operates on iterators of lists: the format you get by reading a csv
@@ -281,9 +286,141 @@ def diffu(L, R):
     
     return deletions, updates, additions
     
+    
+    
+def diffu(L, R):
+    "diffu implemented using bipartite matching"
+    "this version finds the minimal diff (whereas before we found a diff, but not necessarily the minimal one)"
+    "TODO: support different columns; this requires enforcing that L and R are not just lists, but Table objects which have a header we can look at"
+    # L and R are two sets
+    # first, scan L and R to find the overlap; this includes redundant information
+    # second, use an optimization algorithm to choose the set of updates which is minimal (in the sense that the number of changed entries is least)
+    #  this design is also nice because, once it works, it will be trivial to change the weighting to account for the serialized size of the data (e.g. it's cheaper to send {"count": 2, "count"} than {"flux": "a long string made of blue cheese"} even tho the former has more updates
+    
+    #   we have four sets: {deletions, additions, updates, unchanged}
+    #   we wish to output: {deletions, additions, updates}
+    # {deletions, additions} is the *non*overlap 
+    # the overlap {unchanged, updates}
+    #  --> UNCHANGED is rows which are FULL OVERLAPS
+    # 
+    
+    # the  bipartite graph is this: the L rows are vertices and the R rows are vertices; edges are mappings "this L row corresponds to this R row" and they have weights attached, which is the size of the difference between the rows (smaller is better)
+    # initially, we start with the complete bipartite graph: every vertex
+    # we prefilter it and drop;
+    #  
+    #   we find exact matches ('unchanged') 
+    #       
+    
+    # some edges have 0 weight (bc they are)
+    # the optimization will choose them
+    # (but we could probably pre-drop them; we don't care which maps to which, only that something maps to something; so if we find a zero edge)
+    #
+    # --> remember that our vertices
+    
+    #p = ncol(L) == ncol(R) #really want to say this
+    p = len(L[0]) # but we're using Lists so we say this
+    print(100*"p is ", p)
+    
+    def rowdiff(l, r):
+        assert len(l) == p and len(r) == p, "every row must be the same length; we do not handle changing columns (and when we do, we will preprocess to only consider the overlapping columns"
+        
+        return [i for i in range(p) if l[i] != r[i]]
+        #return {i: r[i] for i in range(len(r)) if l[i] != l[r]} #maybe this dictionary instead?
+    
+    updates = [] # a table of edges: (L, R, weight)
+    
+    # TODO: we can make the optimization that once we find a 0-delta *we have found an unchanged row* (it might not be the same mapping the user made; e.g. maybe they edited two rows such that one ended up the same as a later row in the set; but and then that later row wi
+    # TODO: make use of the sorting;  
+    
+    for l, l_row in enumerate(L):
+        for r, r_row in enumerate(R):
+            print("considering pair", l,r)
+            delta = rowdiff(l_row,r_row)
+            if len(delta) not in [0, p]:
+                updates.append((l, r, len(delta))) #record the edge and its weight
+            elif len(delta) == p:
+                # pass
+                pass #?@#?#?#?#
+    
+    import pydot
+    M = max(len(L), len(R)) #graphviz is too good; it's too picky about; but if I balance the bipartitions then make a bunch of hidden nodes, maybe it will be alright
+    G = pydot.Graph("diffu() bipartition of the rows", rankdir="UB", splines=False)
+    GG = pydot.Cluster("Left", label="Local Set")
+    G.add_subgraph(GG)
+    for o in range(M):
+        N = pydot.Node("L%d" % o, color="blue")
+        if o >= len(L): N.set_style("invis")
+        GG.add_node(N)
+        
+        # enforce ordering <http://graphviz.996277.n3.nabble.com/Sorting-node-in-the-same-rank-td2082.html>
+        if o < len(L)-1: GG.add_edge(pydot.Edge("L%d" % o, "L%d" % (o+1), style="invis"))
+        
+    GG = pydot.Cluster("Right", label="Remote Set")
+    G.add_subgraph(GG)
+    for o in range(M):
+        N = pydot.Node("R%d" % o, color="red")
+        if o >= len(R): N.set_style("invis")
+        GG.add_node(N)
+        # enforce ordering <http://graphviz.996277.n3.nabble.com/Sorting-node-in-the-same-rank-td2082.html>
+        if o < len(R)-1: GG.add_edge(pydot.Edge("R%d" % o, "R%d" % (o+1), style="invis"))
+        # at R26.. is 26<len(R) ; presumabl
+    for e in updates:
+        G.add_edge(pydot.Edge("L%d" % e[0], "R%d" % e[1], label=str(e[2])))
+    print(G.to_string())
+    with open("viz.dot", "w") as out:
+        out.write(G.to_string())
+    
+    print("updates is")
+    print(updates)
+    # want to say unique(updates[, "L"]) but we're using Lists so we say..
+    deletions = set(range(len(L))) - set(u[0] for u in updates)
+    additions = set(range(len(R))) - set(u[1] for u in updates)
+    # ^ this is wrong. for one thing, the set of rows which might be updated is a superset of the set of rows which are;
+    # we don't know until
+    import IPython; IPython.embed()
+    print(additions)
+    print(deletions)
+    
+    assert len(update_L) == len(update_R), "After filtering, there should be exactly one local row left to match to each remote row."
+    
+    # now do the LP
+    # the LP is relatively straightforward:
+    # except note that we have to solve the real-valued relaxation first, and only after coerce to integer
+    # we have a set of weighted edges
+    # call an edge e
+    # for each e, the LP constructs a corresponding weight w which is how "included" that edge is (0 = not included, 0.6 = 60% included)
+    
+    # min sum(w_i * edge_i) 
+    # our constraints enforce that we can only have one edge per vertex
+    # su
+    # and then force to integer
+    # ...
+
+
+def humanized_diff(L, delta):
+    from merge import merge
+    D, A = delta #
+    U, D = drop(L, D), [L[i] for i in D] #map the local table L and the list of deletions
+    # into a list of unchanged lines and the verbose list of deletions (if this was math,
+    # this would be something like finding the decomposition L = U + D)
+    
+    def prefix(v, S):
+        return [(v,s) for s in S]
+    
+    # mark each set with its type, so that when we merge the lines we can know what to print later
+    A = prefix("+", A)
+    D = prefix("-", D)
+    U = prefix(" ", U)
+    
+    R = merge(A,D,U, key=lambda v: v[1]) #merge, sorting by the values (v[1] is the value, v[0] is the type marker)
+    # TODO: scan R for large contiguous blocks of Us
+    R = ["%s%s" % (r[0], r[1]) for r in R]
+    return str.join("\n", R)
+
+    
 def applydiff(Table, additions, deletions):
     """
-    preconditions (not enforced): L is a sorted list of rows;
+    preconditions (not enforced), : L is a sorted list of rows;
      additions is a sorted list of rows
      deletions is a list of indexes
     """
@@ -441,7 +578,8 @@ def test_early_column():
 def test_typical(f1 = "activity_counts.shuf1.csv", f2="activity_counts.shuf2.csv"):
     L, R = [read_table(f) for f in (f1, f2)]
     
-    deletions, additions = diff(L, R)
+    delta = diff(L, R)
+    deletions, additions = delta
 
     print("additions")
     for a in additions:
@@ -449,6 +587,8 @@ def test_typical(f1 = "activity_counts.shuf1.csv", f2="activity_counts.shuf2.csv
     print("deletions")
     for d in deletions:
         print(d)
+        
+    print(humanized_diff(L, delta))
     assert applydiff(L, additions, deletions) == R
 
 def test_typical_u(f1 = "activity_counts.shuf1.csv", f2="activity_counts.shuf2.csv"):
@@ -465,6 +605,9 @@ def test_typical_u(f1 = "activity_counts.shuf1.csv", f2="activity_counts.shuf2.c
     print("deletions")
     for d in delta[0]:
         print(d)
+    
+    print("And the diff, in human readable format")
+    print(humanized_diff(L, delta))
     
     assert applydiffu(L, delta) == R
 
@@ -484,7 +627,7 @@ test_early_column()
 if __name__ == '__main__':
     import sys
     if sys.argv[1:]:
-        test_typical_u(sys.argv[1], sys.argv[2])
+        test_typical(sys.argv[1], sys.argv[2])
         print("test passed")
     else:
         tests()
