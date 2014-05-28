@@ -382,24 +382,48 @@ def diffu(L, R):
     print(deletions)
     
     assert len(update_L) == len(update_R), "After filtering, there should be exactly one local row left to match to each remote row."
+    # ^ dis aint true; why isn't it true?
     
-    # now do the LP
-    # the LP is relatively straightforward:
-    # except note that we have to solve the real-valued relaxation first, and only after coerce to integer
-    # we have a set of weighted edges
-    # call an edge e
-    # for each e, the LP constructs a corresponding weight w which is how "included" that edge is (0 = not included, 0.6 = 60% included)
+    # we are searching for an optimal case of what is called a Matching: a set of edges (the updates) without common vertices (ie every row is touched by only one update). In our case, the weighted bipartite case there is a specific name: the [Assignment Problem](https://en.wikipedia.org/wiki/Assignment_problem)) and two algorithms. We use the newer (and faster) of the two
+    # We can solve this by integer linear-programming in a relatively straightforward way:
+    # ((except note that we have to solve the real-valued relaxation first, and only after coerce to integer))
+    # We have a set of edges each with a cost value c_n (the size of the diff the edge represents)
+    # the coefficients we solve for are a different set of weights e_n, which specify how "included" that edge is (0 = not included, 0.6 = 60% included)
     
-    # min sum(w_i * edge_i) 
-    # our constraints enforce that we can only have one edge per vertex
-    # su
-    # and then force to integer
+    # our objective function is
+    # min sum(e_n * c_n)
     # ...
-
+    
+    # and our constraints are defined such that each vertex has at most one edge going to it:
+    # Each n corresponds to a pair (i,j) -- the edge; 
+    # For each vertex i in the L set, we add a constraint across all edges touching it so that at most one of them can be left at the end
+    # 0 < e_{i,a} + e_{i,b} + ... + e_{i, _last_i_vertex} <= 1
+    # and similarly for each vertex j in the R set
+    # 0 < e_{a,j} + e_{b,j} + ... + e_{_last_j_vertex, j} <= 1
+    # ...
+    
+    # For us, we just have to initialize these constraints, and then call our black-box LP solver:
+    # ...
+    
+    # now we read of the solution
+    # ...
+    
+    # isomorphtastic! isn't math great?
 
 def humanized_diff(L, delta):
+    """
+    Convert the given diff to a textual diff, with +s and -s, similar to regular diff(1)'s "-u" mode
+    
+    This only works on V1 deltas (i.e. (deletions, additions) where deletions is a list of indecies and additions is a list of rows)
+    as produced by diff();
+    In the future it will be modified to handle diffu() output, as diffu() starts working...
+    """
+    #    XXX this code overlaps with similar goals in nearby subroutines general
+    #  (e.g. 'hunkifying' is an operation that seems like it requires constructing the merge() anyhow)
+    #   ..I'm sure the relationships will become clearer as this code evolves.
     from merge import merge
     D, A = delta #
+    
     U, D = drop(L, D), [L[i] for i in D] #map the local table L and the list of deletions
     # into a list of unchanged lines and the verbose list of deletions (if this was math,
     # this would be something like finding the decomposition L = U + D)
@@ -413,7 +437,12 @@ def humanized_diff(L, delta):
     U = prefix(" ", U)
     
     R = merge(A,D,U, key=lambda v: v[1]) #merge, sorting by the values (v[1] is the value, v[0] is the type marker)
-    # TODO: scan R for large contiguous blocks of Us
+    # TODO: scan R for large contiguous blocks of Us and omit them (well, actually, replace them with a fourh type of marker ("@", n) which contains the index of the next line), like normal diff does, instead only includding Us that are within a couple of rows of a change
+    # TODO: is it maybe more efficient to not construct those Us in the first place? is there any way for us to do that?
+    # ...probably not. not that AND track the indecies too
+    #^ this is probably best implemented by doing as normal diff does and instead scanning for hunks of changes, and then including adjacent lines (which, by construction, will be guaranteed); record the hunks as a "list of hunks" [(start, end), ...]
+    # which we can then map
+    # TODO: merge nearby +s and -s into blocks, like normal diff does
     R = ["%s%s" % (r[0], r[1]) for r in R]
     return str.join("\n", R)
 
@@ -588,6 +617,7 @@ def test_typical(f1 = "activity_counts.shuf1.csv", f2="activity_counts.shuf2.csv
     for d in deletions:
         print(d)
         
+    print("And the diff, in human readable format")
     print(humanized_diff(L, delta))
     assert applydiff(L, additions, deletions) == R
 
