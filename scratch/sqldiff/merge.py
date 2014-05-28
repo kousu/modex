@@ -1,22 +1,25 @@
 #merge.py:
 # generalized mergesort
 
+from warnings import *
 from functools import *
 
-def which_min(L):
+
+identity = lambda v: v
+
+def which_min(L, key=identity):
     "R's which.min, ported to python"
     #as it turns out, this is very shortly written by squinting at 'min' and using it sideways:
     # instead of min()ing over values, we min() over the indecies of the values, but we provide a keyfunc which makes the sort be based on the values
     L = list(L) #exhaust iterables so that we can call len(L)
     # min() doesn't make sense on an infinite iterable anyway
-    return min(range(len(L)), key=lambda i: L[i])
+    return min(range(len(L)), key=lambda i: key(L[i]))
 
-def which_max(L):
-    return max(range(len(L)), key=lambda i: L[i])
+def which_max(L, key=identity):
+    return max(range(len(L)), key=lambda i: key(L[i]))
 
-identity = lambda v: v
 
-def _merge(*arrays, reversed=False):
+def _merge(*arrays, key=identity, reversed=False):
     "merge any number of arrays sorted low to high"
     #written as a generator, because generators are ideal for this sort of work: conditional array walking
     # TODO: take a 'reversed' flag like normal sort
@@ -27,7 +30,7 @@ def _merge(*arrays, reversed=False):
     search = which_max if reversed else which_min
     while arrays:   #loop stops when all arrays are exhausted
         # find the minimum; the next value to yield
-        k = search(A[idx[k]] for k,A in enumerate(arrays))
+        k = search((A[idx[k]] for k,A in enumerate(arrays)), key=key)
         print("array %d has the minimum" % k, ":", arrays[k][idx[k]]) #DEBUG
         yield arrays[k][idx[k]]
         idx[k]+=1
@@ -36,7 +39,7 @@ def _merge(*arrays, reversed=False):
             idx.pop(k)
             arrays.pop(k)
 
-def _merge(*arrays, reversed=False):
+def _merge(*arrays, key=identity, reversed=False):
     "the above, generalized to take iterables instead of lists"
     
     search = which_max if reversed else which_min
@@ -58,16 +61,16 @@ def _merge(*arrays, reversed=False):
     arrays = active_arrays; del active_arrays;
     while arrays:
         # find the minimum of the current heads
-        k = search(heads)
+        k = search(heads, key=key)
         yield heads[k]
         try:
             _last = heads[k]
             heads[k] = next(arrays[k])
             if reversed: 
                 # XXX: D.R.Y. this up (there should be some good way to factor things so that.. stuff.. right?
-                assert _last >= heads[k], ("Array[%d] is unsorted: %d < %d when asked for descending order." % (k, _last, heads[k]))
+                assert key(_last) >= key(heads[k]), ("Array[%d] is unsorted: key(%d) < key(%d) when asked for descending order." % (k, _last, heads[k]))
             else:
-                assert _last <= heads[k], ("Array[%d] is unsorted: %d > %d when asked for ascending order." % (k, _last, heads[k]))
+                assert key(_last) <= key(heads[k]), ("Array[%d] is unsorted: key(%d) > key(%d) when asked for ascending order." % (k, _last, heads[k]))
         except StopIteration:
             # array is exhausted; remove it
             heads.pop(k)
@@ -117,11 +120,13 @@ def test_merge_reversed():
     B = reversed([1,2,8])
     assert merge(A, B, reversed=True) == [8,6,3,2,1,1]
 
-def mergesort(L):
+def mergesort(L, key=identity):
     "a great way to exercise merge() is to write mergesort() in terms of it"
     if len(L) <= 1: return L
     half = len(L)//2
-    return list(merge(mergesort(L[:half]), mergesort(L[half:])))
+    return list(merge(mergesort(L[:half], key=key),
+                      mergesort(L[half:], key=key),
+                      key=key))
 
 
 def test_mergesort_typical():
@@ -132,7 +137,29 @@ def test_mergesort_typical():
     print("Input:")
     print(L)
     print("Output:")
-    print(mergesort(L))
+    qq = mergesort(L)
+    print(qq)
+    assert qq == list(range(32))
+    
+try:
+    from functools import reduce
+except:
+    warn("Can't import reduce; are you perhaps running python2?")
+
+def test_mergesort_typical_with_key():
+    print("test_mergesort_typical_with_key")
+    import random
+    L = list(range(32))
+    random.shuffle(L)
+    print("Input:")
+    print(L)
+    # sorts the numbers by which remainder block (for the mathies in the audience, which equivalence class) each 
+    # but preserves the order otherwise (ie, this is a stable sort), which comes for free from the API of merge()
+    print("Output:")
+    qq = mergesort(L, key=lambda v: v%3)
+    print(qq)
+    tt = reduce(lambda a,b: a+b, [[v for v in L if v % 3 == c] for c in range(3)]) #these list comprehensions explicitly partition the input set into each equivalence class, then reduce() globs them back together
+    assert qq == tt
 
 if __name__ == '__main__':
     test_merge_none()
@@ -141,4 +168,5 @@ if __name__ == '__main__':
     test_merge_one()
     test_merge_one_none()
     test_mergesort_typical()
+    test_mergesort_typical_with_key()
     test_merge_bad()
