@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 # diff.py 
 """
 sqldiff algorithm
@@ -21,8 +21,44 @@ output: whatever remains in L is the "deletes" list and what is in N is "adds"
 
 """
 
+
+
 from itertools import *
 
+
+def drop(L, idx):
+    "drop elements given a sorted list of indecies"
+    "equivalent to L[-idx] in R or L[L[i] for i in itertools.filterfalse(lambda i: i in idx, range(len(L))] or to some similar constructions in numpy"
+    "but this runs in linear time because of the sorted condition"
+    "and operates on any iterable"
+    #TODO: pull to a util module
+    #TODO: it seems odd that this isn't in itertools; itertools has dropwhile() but that's only a fancy (yet only one half) sort of slice.
+    idx = iter(idx)
+    d = None
+    L = iter(L)
+    for i, l in enumerate(L): #..this really wants to be a do-while..; instead, encode first-state as "None" and hope that idx contains no Nones
+        if d is None or i == d: #skip
+            if d is None: yield l #hack around the do-while case
+            try:
+                d = next(idx)
+                if not isinstance(d, int):
+                    raise TypeError("idx must be a list of integers")
+            except StopIteration:
+                # when it runs out, exhaust the iterable immediately
+                for l in L: #note, this depends on iter() being idempotent when called on things that are already iter()s!
+                    yield l
+                break
+        else:
+            yield l
+            
+def test_drop():
+    L = range(59)
+    LL = drop(L, [3, 44, 66])
+    LL = list(LL)
+    TT = list(range(59))
+    TT.pop(44); TT.pop(3) #don't pop 66 because that's (purposely) not a valid index (but drop() should just ignore such things)
+    assert LL == TT
+    
 def negativeidx(idx):
     return [-i for i in idx]
 
