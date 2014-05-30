@@ -92,6 +92,8 @@ HTML5 is extremely powerful. It has a lot of new widgets (under form elements: s
 * http://nytimes.github.io/tamper/ - _achieves superior compression via categorical data_
 * [protobufs](https://developers.google.com/protocol-buffers/)
 
+* http://dataprotocols.org/
+
 ## Javascript Data View/Flow/Binding Libraries  (an obscene number of them)
 
 Since our problem is so data-centric, not using data-binding will be a giant pain of always writing new update handlers. 
