@@ -59,11 +59,13 @@ class Planet(object):
         self.radius = radius
         self.position = (random.normalvariate(50, 2), random.normalvariate(50, 2))
         print(self.position)
-        self.velocity = (random.normalvariate(50, 2), random.normalvariate(50, 2))
+        self.velocity = (random.normalvariate(0.05, .2), random.normalvariate(50, 2))
+        self.velocity = (0,0)
         
 
 class Universe(object):
     G = 6.67e-11
+    G = 6.67e-2 #increasing the force of gravity makes things happen faster
     def __init__(self, num_planets):
         self.planets = [Planet() for i in range(num_planets)]
     def __iter__(self):
@@ -72,21 +74,25 @@ class Universe(object):
         _previous = deepcopy(self) #double buffer the universe
         # compute the force on each planet
         # the force on each planet is the sum of the force of gravity on it from every other planet
-        forces = [vector_add(*[self.gravity(p, o) for o in _previous.planets]) for p in self.planets] #notice that we loop over the previous state in the inner loop! 
-        print(forces)
+        forces = [vector_add(*[self.gravity(p, o) for o in _previous.planets]) for p in self.planets] #notice that we loop over the previous state in the inner loop!
+        print("forces", forces)
+        print("velocities", [p.velocity for p in self.planets])
+        print("positions", [p.position for p in self.planets])
         for i in range(len(self.planets)):
             # apply the velocity
-            self.planets[i].position = vector_add(self.planets[i].position, self.planets[i].velocity)
+            self.planets[i].position = vector_add(_previous.planets[i].position, _previous.planets[i].velocity)
             
-            # apply the force
-            self.planets[i].velocity = vector_add(self.planets[i].velocity, self.force(forces[i], self.planets[i]))
+            # apply the forces
+            self.planets[i].velocity = vector_add(_previous.planets[i].velocity, self.force(forces[i], _previous.planets[i]))
+            
+            print()
     
     @staticmethod
     def force(F, m):
         "newton's second law"
         "apply force F to Planet m, functionally"
         
-        # F = ma
+        # F = ma!
         return vector_mul(1/m.mass, F)
          
     
@@ -98,9 +104,14 @@ class Universe(object):
             return (0,0)             #with a hack
             
         d = (dist(m.position, M.position))
+        
+        # 
         magnitude = -Universe.G * (m.mass * M.mass) / d**2
+        if abs(magnitude) > 100:
+            return (0,0)
         # direction vector...
         direction = vector_sub(m.position, M.position)
+        #put them together
         return vector_mul(magnitude/d, direction)
         
         
@@ -114,10 +125,17 @@ class UniversePlotter(object):
         import matplotlib.pyplot as plt
         import matplotlib.patches
         import matplotlib.animation
+        import math
+        import numpy as np
         self.universe = universe
         self.plt = plt
+        
         self.plot = self.plt.scatter([0]*len(self.universe.planets),
-                                     [0]*len(self.universe.planets), s=[p.radius if p.radius else 3 for p in self.universe.planets])
+                                     [0]*len(self.universe.planets),
+                                     s=[p.radius if p.radius else 333 for p in self.universe.planets],
+                                     cmap=plt.cm.terrain,
+                                     c=np.linspace(0, 1, len(self.universe.planets)))
+        # TODO: plot an arrow showing the force
         self.ani = matplotlib.animation.FuncAnimation(self.plot.figure, self.__next__, frames=range(300))
         
     def __next__(self, *args):
@@ -126,13 +144,16 @@ class UniversePlotter(object):
                             #unless you do all your processing on a thread (literally:
                             #  a python, GIL-strangled, threading module thread) it
                             # is impossible to simply use matplotlib like the widgets it is.
-        print("planets are at") #DEBUG
-        for p in U.planets:
-            print(p.position)
+        #print("planets are at") #DEBUG
+        #for p in U.planets:
+        #    print(p.position)
             
         for i, p in enumerate(self.universe.planets):
             xy[i, ] = p.position
         
+        self.plot.axes.set_xlim((-1e3, 1e3))
+        self.plot.axes.set_ylim((-1e3, 1e5))
+        return
         # update the plot limits to keep the planets on screen
         # but only do it as needed, to keep some continuitiy
         x_min, x_max = self.plot.axes.get_xlim()
