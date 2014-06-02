@@ -303,9 +303,22 @@ Collaboraties (laboratories for collaboration) are our key to reproducible scien
 * [FigShare](http://figshare.com/)
 
 ### Citation Management
+
 * http://www.zotero.org/
 * http://www.mendeley.com/
 
+Plus the tried and true:
+
+* wikis (private or public)
+* Dropbox/Google Drive
+* .txt files
+* .bib files
+
+And the more novel:
+
+* http://rapgenius.com/static/education
+* http://a.nnotate.com/
+* http://drawhere.com/
 
 ## Blogs
 * wordpress
