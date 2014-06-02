@@ -28,6 +28,8 @@ TODO:
 import random
 from copy import deepcopy
 
+from itertools import *
+
 def vector_add(*vs): #quick hack; if this needs anything more than this we should invest in finding a physics library
     return [sum(s) for s in zip(*vs)]
 
@@ -69,7 +71,8 @@ class Universe(object):
     def __next__(self):
         _previous = deepcopy(self) #double buffer the universe
         # compute the force on each planet
-        forces = [vector_add(*[self.gravity(p, o) for o in _previous.planets if o is not p]) for p in self.planets] #notice that we loop over the previous state in the inner loop!
+        # the force on each planet is the sum of the force of gravity on it from every other planet
+        forces = [vector_add(*[self.gravity(p, o) for o in _previous.planets]) for p in self.planets] #notice that we loop over the previous state in the inner loop! 
         print(forces)
         for i in range(len(self.planets)):
             # apply the velocity
@@ -91,36 +94,60 @@ class Universe(object):
     def gravity(m, M):
         "newton's law of gravity, functionally"
         "gives the force that M exerts on m, as a tuple (x,y)"
-        if m.position == M.position:
-            return (0,0) #HACK
+        if m.position == M.position: #avoid a conflict case
+            return (0,0)             #with a hack
+            
         d = (dist(m.position, M.position))
-        magnitude = Universe.G * (m.mass * M.mass) / d**2
+        magnitude = -Universe.G * (m.mass * M.mass) / d**2
         # direction vector...
         direction = vector_sub(m.position, M.position)
         return vector_mul(magnitude/d, direction)
         
         
+        
 
 class UniversePlotter(object):
     "a 2d physics renderer built on matplotlib"
+    # it is frustrating that matplotlib forces IoC
+    # For something this simple I would prefer to call figure.canvas.draw() myself
     def __init__(self, universe):
         import matplotlib.pyplot as plt
         import matplotlib.patches
+        import matplotlib.animation
         self.universe = universe
         self.plt = plt
-        self.plt.patches = matplotlib.patches
+        self.plot = self.plt.scatter([0]*len(self.universe.planets),
+                                     [0]*len(self.universe.planets), s=[p.radius if p.radius else 3 for p in self.universe.planets])
+        self.ani = matplotlib.animation.FuncAnimation(self.plot.figure, self.__next__, frames=range(300))
         
-    def __next__(self):
-        circles = [self.plt.patches.Circle(p.position, p.radius, fill=True) for p in self.universe.planets]
+    def __next__(self, *args):
+        xy = self.plot.get_offsets()
+        next(self.universe) #why is this in here, you ask? because matplotlib forces IoC;
+                            #unless you do all your processing on a thread (literally:
+                            #  a python, GIL-strangled, threading module thread) it
+                            # is impossible to simply use matplotlib like the widgets it is.
+        print("planets are at") #DEBUG
+        for p in U.planets:
+            print(p.position)
+            
+        for i, p in enumerate(self.universe.planets):
+            xy[i, ] = p.position
         
-        self.universe.planets
+        # update the plot limits to keep the planets on screen
+        # but only do it as needed, to keep some continuitiy
+        x_min, x_max = self.plot.axes.get_xlim()
+        if not all(x_min < p.position[0] < x_max for p in self.universe.planets):
+            self.plot.axes.set_xlim(min(xy[:,0]) - 10, max(xy[:,0]) + 10)
+        y_min, y_max = self.plot.axes.get_ylim()
+        if not all(y_min < p.position[1] < y_max for p in self.universe.planets):
+            self.plot.axes.set_ylim(min(xy[:,1]) - 10, max(xy[:,1]) + 10)
+        #self.fig.canvas.draw()
+        
+        
+    def show(self):
+        self.plt.show()
 
 if __name__ == '__main__':
     U = Universe(2)
     d = UniversePlotter(U)
-    for u in U:
-        next(d)
-        print("planets are at")
-        for p in U.planets:
-            print(p.position)
-        print()
+    d.show()
