@@ -21,6 +21,7 @@ TODO:
 - [ ] orbits
 - [ ] elastic collisions ("handle conflicts") 
 - [ ] handle conflicts more generally, with message-passing OOP: make each "agent" send a request of where they want to go instead of having them choose themselves
+- [ ] find a good Vector class and use that
 
 """
 
@@ -69,14 +70,26 @@ class Universe(object):
         _previous = deepcopy(self) #double buffer the universe
         # compute the force on each planet
         forces = [vector_add(*[self.gravity(p, o) for o in _previous.planets if o is not p]) for p in self.planets] #notice that we loop over the previous state in the inner loop!
+        print(forces)
         for i in range(len(self.planets)):
-            # apply the total force
-            #self.planets[i].velocity = forces[i]
-            pass
+            # apply the velocity
+            self.planets[i].position = vector_add(self.planets[i].position, self.planets[i].velocity)
+            
+            # apply the force
+            self.planets[i].velocity = vector_add(self.planets[i].velocity, self.force(forces[i], self.planets[i]))
+    
+    @staticmethod
+    def force(F, m):
+        "newton's second law"
+        "apply force F to Planet m, functionally"
         
+        # F = ma
+        return vector_mul(1/m.mass, F)
+         
+    
     @staticmethod
     def gravity(m, M):
-        "newton's law of gravity"
+        "newton's law of gravity, functionally"
         "gives the force that M exerts on m, as a tuple (x,y)"
         if m.position == M.position:
             return (0,0) #HACK
