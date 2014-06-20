@@ -155,6 +155,15 @@ Related threads:
 * [nengo-gui#1](https://github.com/ctn-waterloo/nengo_gui/pull/1)
 
 
+
+# Web-Based Code Editors
+
+Examples of isolating
+
+* http://repl.it
+* http://ideone.com/
+* http://gcc.godbolt.org/#
+
 # Backend
 
 
