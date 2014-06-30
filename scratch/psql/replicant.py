@@ -534,12 +534,15 @@ class PgClient:
         
         while self._running:
             # this would be cleaner if I could say "select [pg, sys.stdin]"
-            Sr, _, _ = select.select([self.sock], [], [], 1) #1s timeout means ~1s between the main thread terminating and this thread noticing and following suit
+            Sr, _, Se = select.select([self.sock], [], [self.sock], 1) #1s timeout means ~1s between the main thread terminating and this thread noticing and following suit
             if Sr:
                 m = self.recv()
                 #...?
                     
                     #...the best thing to do might actually be to spin off a thread...
+            elif Se:
+                print("Socket fell over") #XXX todo better message
+                break
                 
         self.sock.close()
         self.sock = None
