@@ -332,12 +332,26 @@ class CommandComplete(Message):
     class Insert(Tag):
         def __init__(self, object_id, rows):
             self.object_id, self.rows = object_id, rows
-            
     class Delete(Tag):
-        def __init__(self, object_id, rows):
-            self.object_id, self.rows = object_id, rows
+        def __init__(self, rows):
+            self.rows = rows
+    class Update(Tag):
+        def __init__(self, rows):
+            self.rows = rows
+    class Select(Tag):
+        def __init__(self, rows):
+            self.rows = rows
+    class Move(Tag):
+        def __init__(self, rows):
+            self.rows = rows
     
+    class Fetch(Tag):
+        def __init__(self, rows):
+            self.rows = rows
     
+    class Copy(Tag):
+        def __init__(self, rows):
+            self.rows = rows
     
     def __init__(self, tag):
         self.tag = tag #TODO: structure this; the tags themselves    
@@ -346,29 +360,44 @@ class CommandComplete(Message):
     def parsetag(tag):
     
         #I D U S M F C
-        h = tag[0] #I cheat: I parse the tag by looking at the first byte
+        h = tag[0:1] #I cheat: I parse the tag by looking at the first byte; note, with *bytes*, indexing is different from slicing, which is why we use 0:1
+        w = "it is an error to add strings and numbers in python"
         if h == b"I":
-            assert tag[:6] == b"INSERT"
-            # ..???
+            w = 6
+            assert tag[:w] == b"INSERT"
+            return CommandComplete.Insert(tag[w:]) #TODO: parse this better!!
         elif h == b"D":
-            assert tag[:6] == b"DELETE"
+            w = 6
+            assert tag[:w] == b"DELETE"
+            return CommandComplete.Delete(tag[w:]) #TODO: parse this better!!
         elif h == b"U":
-            assert tag[:6] == b"UPDATE"
+            w = 6
+            assert tag[:w] == b"UPDATE"
+            return CommandComplete.Update(tag[w:]) #TODO: parse this better!!
         elif h == b"S":
-            assert tag[:6] == b"SELECT"
+            w = 6
+            assert tag[:w] == b"SELECT"
+            return CommandComplete.Select(tag[w:]) #TODO: parse this better!!
         elif h == b"M":
-            assert tag[:4] == b"MOVE"
+            w = 4
+            assert tag[:w] == b"MOVE"
+            return CommandComplete.Move(tag[w:]) #TODO: parse this better!!
         elif h == b"F":
-            assert tag[:5] == b"FETCH"
+            w = 5
+            assert tag[:w] == b"FETCH"
+            return CommandComplete.Fetch(tag[w:]) #TODO: parse this better!!
         elif h == b"C":
-            assert tag[:4] == b"COPY"
-            #...?!??!?!
-        
-        
+            w = 4
+            assert tag[:w] == b"COPY"
+            return CommandComplete.Copy(tag[w:]) #TODO: parse this better!!
+        else:
+            raise ValueError("Unknown tag", tag)
     
     @classmethod
     def parse(cls, payload):
         return cls(cls.parsetag(payload))
+    def __str__(self):
+        return "<%s.%s>" % (type(self).__name__, type(self.tag).__name__)
 
 class EmptyQueryResponse(Message):
     TYPECODE = b"I"
