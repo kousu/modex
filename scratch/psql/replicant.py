@@ -1,6 +1,14 @@
 # implement the client side of http://www.postgresql.org/docs/current/static/protocol-flow.html#AEN98939
 # the reason I'm doing this is because I want to use http://www.postgresql.org/docs/current/static/protocol-replication.html *over a websocket*, and, personally, it's easier to prototype with python
 
+"""
+scrap notes:
+
+- the protocol is a mixture of binary and string data
+- struct.(un)pack is useful for us for the binary data, but the string data is C-strings, which struct.pack does not handle (it handles fixed sized strings and pascal strings). This means we need to do scanning to parse these parts.
+
+"""
+
 import socket
 import struct
 
@@ -14,16 +22,117 @@ import sys
 # only ones marked "B" are ones we might need to parse
 
 
+
+def pgstruct_commands(fmt):
+    "scan and parse a postgres struct format string, which is the same as a regular format string except that it cannot have its endianness specified (because postgres uses network (big) endianness) and 's' means nul-terminated non-fixed-size C strings"
+    "also, for now, we make the assumption that strings mean ascii strings, though supposedly there's a way to configure this"
+    
+    assert fmt[0] not in ["@", "=", "<", ">", "!"] #*disallow* user choice of endianness
+    p = 0 #current head
+    # allowed chars in a format string: spaces (ignored), the list of single char commands, and decimal digits but only *immediately* preceeding their single char
+    while p < len(fmt):
+        # ignore spaces 
+        if fmt[p].isspace():
+            p+=1
+            continue
+        
+        # eat numeric digits 
+        e = p
+        while ord("0") < ord(fmt[e]) < ord("9"):
+            e += 1
+        l = int(fmt[p:e]) if e > p else None
+        # and the format char 
+        e += 1
+        # actually extract the command sequence
+        cmd = fmt[p:e]
+        
+        # advance the pointer
+        p = e
+
+
+        if cmd[-1] == "s":
+            assert len(cmd) == 1, "non-fixed-width strings *must not* have a length associated"
+        assert cmd[-1] not in ["p", "n", "N", "P", "q", "Q"], "%s only available in native struct format, which postgres, using network format, does not use" % cmd[-1]
+        
+        yield cmd        #assert c in ["x","c","b","B","?","h","H","i","I","l","L","f","d","s","p", "n","N", "P", "q","Q"], "bad char in struct format"
+              
+#print(list(pgstruct_commands("x x h y hy h x   3xx xx x")))
+
+
 def pgpack(fmt, *args):
     "postgres-pack: stuff some data into a single structure"
     "this is here to enforce that everything in Postgres is in network byte order"
-    assert fmt[0] not in ["@", "=", "<", ">", "!"]
+    
+    # in order to change the meaning of 's' we need to do at least a bit of parse ourselves
+    # I think(?) the least slow (but still stuck in python) way to do this is by doing each individually in a generator then join() the results
+    
+    #TODO: this would be faster if we were clever about finding chunks of string vs non-string blocks and encoded the non-string blocks all at once, since that's done by the _struct.so module
+    
+    def fm(cmd, a):
+        if cmd == "s":
+            assert isinstance(a, str)
+            return a.encode("ascii") + b"\x00" #nul-terminate the string and pass it back
+        
+        # otherwise fall back on normal
+        return struct.pack("!" + cmd, a)
+    
+    return bytes.join(b"", (fm(c, a) for c,a in zip(pgstruct_commands(fmt), args)))
+    
     return struct.pack("!"+fmt, *args) # ! means 'network order' per https://docs.python.org/3.4/library/struct.html
 
+#print(pgpack("sh", "i am a merry model", 888))
+
 def pgunpack(fmt, buffer):
-    assert fmt[0] not in ["@", "=", "<", ">", "!"]
-    return struct.unpack("!"+fmt, buffer) # ! means 'network order' per https://docs.python.org/3.4/library/struct.html
+    r, o = pgunpack_from(fmt, buffer)
+    assert o == len(buffer), "pgunpack requires an exact-length buffer"
+    return r
+
+def pgunpack_from(fmt, buffer, offset=0):
+    "the return value of this is *two*-valued: the usual tuple of results from struct.unpack *plus* the *remainder of buffer*, because due to C-strings there is no way to know before calling this how much of buffer will get eaten"
+    "the struct module does it differently; since all its fields have their width specified in the format string, it can provide a (functional-style) routine 'calcsize' and force you to use it, even with pascal strings *which have a size byte embedded*"
+    "but we only find out our field widths during parsing"
     
+    # this cannot be done functionally, because the width of each buffer is variable, due to C-strings
+    
+    def parse(): #a generator to do the parsing for us
+        nonlocal offset
+        # ..hm. okkkkay. this is complicated.
+        # buffer commands that *are not 's'* and unpack them all at once
+        
+        
+        def buffered_commands(fmt):
+            # yields ONLY either 's' or a valid format string of fixed width entries
+            cmds = []
+            
+            for cmd in pgstruct_commands(fmt):
+                if cmd == "s":
+                    if cmds:
+                        yield str.join(" ", cmds); cmds = []
+                    yield "s"
+                else:
+                    cmds.append(cmd)
+            
+            if cmds:
+                yield str.join(" ", cmds); cmds = []
+        
+        
+        for cmd in buffered_commands(fmt):
+            if cmd == "s":
+                e = buffer.find(b"\x00", offset)
+                yield buffer[offset:e]
+                offset = e + 1
+                
+            else:
+                cmd = "!" + cmd # ! means 'network order' per https://docs.python.org/3.4/library/struct.html
+                w = struct.calcsize(cmd)
+                for t in struct.unpack_from(cmd, buffer, offset):
+                    yield t
+                offset += w
+                
+    return tuple(parse()), offset
+    
+
+#print(pgunpack_from("sih", pgpack("sih", "i am a merry model", -919191, 888)+b" la lal al alalla I am the walrus"))
 
 def pg_marshal_dict(D):
     "marshal an ordered dictionary"
@@ -151,7 +260,7 @@ class AuthRequest(Message):
 #class AuthOk(AuthRequest):
 #    ID = 0
 
-class KeyData(Message):
+class BackendKeyData(Message):
     "'Identifies the message as cancellation key data.'"
     "'The frontend must save these values if it wishes"
     " to be able to issue CancelRequest messages later.'"
@@ -200,6 +309,7 @@ class ReadyForQuery(Message):
     
     def __init__(self, state):
         self.state = state
+        
     @classmethod
     def parse(cls, payload):
         assert len(payload) == 1
@@ -209,6 +319,148 @@ class ReadyForQuery(Message):
     def __str__(self):
         return "<%s::%s>" % (type(self).__name__, self.state)
 
+
+class CommandComplete(Message):
+    "Identifies the message as a command-completed response."
+    "actually has several sub-classes, which we implement here (in line with the protocol) as a .tag field and the CommandComplete.Tag tree of classes"
+    TYPECODE = b"C"
+    SOURCE = S.B
+    
+    class Tag:
+        pass
+    
+    class Insert(Tag):
+        def __init__(self, object_id, rows):
+            self.object_id, self.rows = object_id, rows
+            
+    class Delete(Tag):
+        def __init__(self, object_id, rows):
+            self.object_id, self.rows = object_id, rows
+    
+    
+    
+    def __init__(self, tag):
+        self.tag = tag #TODO: structure this; the tags themselves    
+    
+    @staticmethod
+    def parsetag(tag):
+    
+        #I D U S M F C
+        h = tag[0] #I cheat: I parse the tag by looking at the first byte
+        if h == b"I":
+            assert tag[:6] == b"INSERT"
+            # ..???
+        elif h == b"D":
+            assert tag[:6] == b"DELETE"
+        elif h == b"U":
+            assert tag[:6] == b"UPDATE"
+        elif h == b"S":
+            assert tag[:6] == b"SELECT"
+        elif h == b"M":
+            assert tag[:4] == b"MOVE"
+        elif h == b"F":
+            assert tag[:5] == b"FETCH"
+        elif h == b"C":
+            assert tag[:4] == b"COPY"
+            #...?!??!?!
+        
+        
+    
+    @classmethod
+    def parse(cls, payload):
+        return cls(cls.parsetag(payload))
+
+class EmptyQueryResponse(Message):
+    TYPECODE = b"I"
+    SOURCE = S.B
+    
+    @classmethod
+    def parse(cls, payload):
+        assert not payload, "EmptyQueryResponse should have no payload"
+        return cls()
+    
+
+class Query(Message):
+    TYPECODE = b"Q"
+    SOURCE = S.F
+    
+    def __init__(self, string):
+        self.string = string
+        
+    def payload(self):
+        return self.string.encode("ascii") + b"\x00"
+    
+    def __str__(self):
+        return "<%s>: '%s'" % (type(self).__name__, self.string)
+
+
+class RowDescription(Message):
+
+    TYPECODE = b"T"
+    SOURCE = S.B
+    
+    
+    def __init__(self, fields): #a DataRow is a list of fields, ordered but unlabelled
+        self.fields = fields
+       
+    @classmethod 
+    def parse(cls, payload):
+        (n,), payload = pgunpack("H", payload[:2]), payload[2:]
+        # parse each field
+        fields = []
+        offset = 0
+        for i in range(n):
+            # order: name, table ID, column ID, field type, field size, field type modifier, text/binary flag (0=Text, 1=Binary)
+            f, offset = pgunpack_from("s i h i h i h", payload, offset)
+            
+            fields.append(f)
+        return cls(fields)
+    
+    def __str__(self):
+        return "<%s>: '%s'" % (type(self).__name__, self.fields)
+        
+class DataRow(Message):
+    TYPECODE = b"D"
+    SOURCE = S.B
+    
+    
+    def __init__(self, data): #a DataRow is a list of fields, ordered but unlabelled
+        self.fields = data
+    
+    @classmethod
+    def parse(cls, payload):
+        (n,), payload = pgunpack("H", payload[:2]), payload[2:]
+        
+        # parse each field
+        fields = []
+        for i in range(n):
+            (l,), payload = pgunpack("i", payload[:4]), payload[4:]
+            if l == -1:
+                fields.append(None) # a SQL NULL value
+                payload
+            else:
+                f, payload = payload[:l], payload[l:]
+                # ...darn, I need a pseudo-global; I need to be able to look at PgClient.parameters["client_encoding"]. But that
+                f = f.decode("ascii") #XXX hardcoded sketchiness!
+                fields.append(f)
+                
+        assert not payload, "We didn't eat up the entire payload while parsing a DataRow; was the number of fields wrong?"
+            
+        return cls(fields)
+        
+    def __str__(self):
+        return "<%s> %s" % (type(self).__name__, self.fields)
+
+    
+
+### replication protocol messages 
+### all of these are passed as queries ("Q") messages
+### http://www.postgresql.org/docs/current/static/protocol-replication.html
+
+# XXX put these in a submodule
+class Replication_IdentifySystem(Query):
+    def __init__(self):
+        super().__init__("IDENTIFY_SYSTEM")
 
 #-----------------------
 
@@ -221,13 +473,22 @@ class PgClient:
     def __init__(self, user, database=None, options = {}, server = ("localhost", 5432)):
         #self.sock = socket.socket()
         #self.sock.connect(server)
+        
+        self.key = None   #the postgres cryptokey ("BackendKeyData (B)" The frontend must save these values if it wishes to be able to issue CancelRequest messages later.)
+        
+        self.parameters = {} #the state of the server as reported by ParameterStatus
+        
+        self._running = True
+
         self.sock = socket.create_connection(server)
         self.send(StartupMessage(user, database, **options))
         
+        
     def send(self, message):
         assert message.SOURCE.frontend, "%s is not meant to be sent by the client" % message
-        #print(message)
+        
         print("<--", message)
+        
         self.sock.send(message.render())
     
     def recv(self):
@@ -244,34 +505,63 @@ class PgClient:
             message = UnknownMessage(typecode, payload)
         else:
             message = message.parse(payload)
+            assert message is not None, "You forgot to return the message in parse()!"
         assert message.SOURCE.backend, "%s is not meant to be received by the client" % message #XXX maybe this shouldn't be an assert because it means there's a DoS here.
-        
         
         print("-->", message)
         
+        # stash the postgres cryptokey (which is sent in plaintext?!)        if isinstance(message, KeyData):
+        if isinstance(message, BackendKeyData):
+            self.key = message.key
+        elif isinstance(message, ParameterStatus): #flatten the ParameterStatus messages into something nicer
+            self.parameters[message.key] = message.value
+        
         return message
+    
+    def process(self):
+        "; this function mostly exists to be run on a background thread"
+        
+        # dealing with this protocol is complicated because it's not a simple request-response protocol. A single request can result in multiple responses, which sometimes come in a particular order and sometimes do not. We're facing a state machine, and that makes it difficult to write cleanly (i.e. functionally).
+        # e.g. a single response to a query is at least three messages:
+        # 1) a RowDescription, giving the fieldnames and order (in csv, the first header row)
+        # 2) a series of DataRows
+        # 3) a CommandComplete
+        
+        # It's *also* complicated because there's layered protocols, though they aren't called that
+        # for example, the "walsender" mode is layered on SQL messages ("Q"ueries and "D"/"C" responses); like, IDENTIFY_SYSTEM returns a SQL table, even though it's metadata that isn't actually SQL.
+        # Maybe we should actually implement some lines here, like "while Reading A Query Response: m = self.recv(); ..." and..stream out the result to a queue of some sort? a queue labelled by the table name or ..something? oh, but even more complicated for us, the protocol does not embed table names in the responses.
+        # the protocol has "ReadyForQuery" to help us, at least
+        
+        while self._running:
+            # this would be cleaner if I could say "select [pg, sys.stdin]"
+            Sr, _, _ = select.select([self.sock], [], [], 1) #1s timeout means ~1s between the main thread terminating and this thread noticing and following suit
+            if Sr:
+                m = self.recv()
+                #...?
+                    
+                    #...the best thing to do might actually be to spin off a thread...
+                
+        self.sock.close()
+        self.sock = None
+
+import threading
+import IPython
 
 def test():
-    pg = PgClient("postgres")
-    def client_fiber():
-        while True:
-            
-            yield
-            
-    def REPL_fiber(): #...?
-        while True:
-            yield
+    pg = PgClient("kousu", "postgres", {"replication": "on"}) #this line is picky!! I'll fix it up!!
+    pg.send(Replication_IdentifySystem())
+    # now, I would like to wait here for 
+    #...register a promise?
+    #
     
-    while True:
-        Sr, _, _ = select.select([sys.stdin, pg.sock], [], []) #...so, a timeout of 0 is..bad
-        if Sr:
-            Sr = Sr[0]
-            if Sr is sys.stdin:
-                l = input()
-                print("you typed ", l , "don't you feel special?")
-            elif Sr is pg.sock:
-                m = pg.recv()
+    pg.thread = threading.Thread(target=pg.process)
+    pg.daemon = True
+    pg.thread.start()
+    IPython.embed()
+    
+    pg._running = False #signal the client to shut itself down
+    
                 
-
+                
 if __name__ == '__main__':
     test()
