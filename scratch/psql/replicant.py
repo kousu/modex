@@ -13,6 +13,7 @@ import socket
 import struct
 
 from enum import Enum
+from itertools import chain
 
 from collections import OrderedDict
 import select
@@ -62,6 +63,7 @@ def pgstruct_commands(fmt):
 def pgpack(fmt, *args):
     "postgres-pack: stuff some data into a single structure"
     "this is here to enforce that everything in Postgres is in network byte order"
+    "XXX this currently FORCES ASCII. Be warned."
     
     # in order to change the meaning of 's' we need to do at least a bit of parse ourselves
     # I think(?) the least slow (but still stuck in python) way to do this is by doing each individually in a generator then join() the results
@@ -91,6 +93,7 @@ def pgunpack_from(fmt, buffer, offset=0):
     "the return value of this is *two*-valued: the usual tuple of results from struct.unpack *plus* the *remainder of buffer*, because due to C-strings there is no way to know before calling this how much of buffer will get eaten"
     "the struct module does it differently; since all its fields have their width specified in the format string, it can provide a (functional-style) routine 'calcsize' and force you to use it, even with pascal strings *which have a size byte embedded*"
     "but we only find out our field widths during parsing"
+    "XXX this currently ASSUMES ASCII. Be warned."
     
     # this cannot be done functionally, because the width of each buffer is variable, due to C-strings
     
@@ -119,7 +122,7 @@ def pgunpack_from(fmt, buffer, offset=0):
         for cmd in buffered_commands(fmt):
             if cmd == "s":
                 e = buffer.find(b"\x00", offset)
-                yield buffer[offset:e]
+                yield buffer[offset:e].decode("ascii")
                 offset = e + 1
                 
             else:
@@ -214,7 +217,8 @@ class StartupMessage(Message):
     def payload(self):
         VERSION = ProtocolVersion.Major << 16 | ProtocolVersion.Minor
         #TODO: pull the null-termination thing out to a different function (maybe even to pgpack?)
-        return pgpack("I", VERSION) + str.join("", ("%s\0%s\0" % e for e in self.options.items())).encode("ascii") + self._TERMINATOR
+        # 'chain' and the two starmaps are from http://stackoverflow.com/questions/406121/flattening-a-shallow-list-in-python
+        return pgpack("I", VERSION) + pgpack("ss"*len(self.options), *chain(*self.options.items())) + self._TERMINATOR
 
     def __str__(self):
         return "<%s(): %r>" % (type(self).__name__, self.options)
@@ -287,9 +291,9 @@ class ParameterStatus(Message):
     
     @classmethod
     def parse(cls, payload):
-           key, value, _ = [s.decode("ascii") for s in payload.split(b"\x00")]
-           
-           return cls(key, value)
+       key, value = pgunpack("ss", payload)
+                  
+       return cls(key, value)
     def __str__(self):
         return "<%s(%r: %r)>" % (type(self).__name__, self.key, self.value)
 
@@ -417,8 +421,8 @@ class Query(Message):
         self.string = string
         
     def payload(self):
-        return self.string.encode("ascii") + b"\x00"
-    
+        return pgpack("s", self.string)
+        
     def __str__(self):
         return "<%s>: '%s'" % (type(self).__name__, self.string)
 
@@ -564,6 +568,10 @@ class PgClient:
         while self._running:
             # this would be cleaner if I could say "select [pg, sys.stdin]"
             Sr, _, Se = select.select([self.sock], [], [self.sock], 1) #1s timeout means ~1s between the main thread terminating and this thread noticing and following suit
+            #TODO: figure out some way to have select() wake up on a signal instead of use a timeout
+            # e.g. we make a FIFO or a TCP socket to ourselves?
+            # but it seems sort of strange to use TCP just to talk from one thread to another?
+            #..but maybe it's not. That's what multiprocessing would do. 
             if Sr:
                 m = self.recv()
                 #...?
