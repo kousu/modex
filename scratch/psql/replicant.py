@@ -21,6 +21,8 @@ import sys
 
 import traceback
 
+from warnings import warn
+
 # possible messages at http://www.postgresql.org/docs/current/static/protocol-message-formats.html
 # only ones marked "B" are ones we might need to parse
 
@@ -29,6 +31,7 @@ import traceback
 def pgstruct_commands(fmt):
     "scan and parse a postgres struct format string, which is the same as a regular format string except that it cannot have its endianness specified (because postgres uses network (big) endianness) and 's' means nul-terminated non-fixed-size C strings"
     "also, for now, we make the assumption that strings mean ascii strings, though supposedly there's a way to configure this"
+    "note: we *also* support Int64s and for this we again repurpose 'q' which is in the struct spec (but not in the *standard* struct spec only in 'native mode'"
     if len(fmt) == 0:
         return
     assert fmt[0] not in ["@", "=", "<", ">", "!"] #*disallow* user choice of endianness
@@ -53,10 +56,12 @@ def pgstruct_commands(fmt):
         # advance the pointer
         p = e
 
-
+        
         if cmd[-1] == "s":
             assert len(cmd) == 1, "non-fixed-width strings *must not* have a length associated"
-        assert cmd[-1] not in ["p", "n", "N", "P", "q", "Q"], "%s only available in native struct format, which postgres, using network format, does not use" % cmd[-1]
+        
+        assert cmd[-1] not in ["p", "n", "N", "P"], "%s only available in native struct format, which postgres, using network format, does not use" % cmd[-1]
+        # "q", "Q"]
         
         yield cmd        #assert c in ["x","c","b","B","?","h","H","i","I","l","L","f","d","s","p", "n","N", "P", "q","Q"], "bad char in struct format"
               
@@ -77,13 +82,20 @@ def pgpack(fmt, *args):
         if cmd == "s":
             assert isinstance(a, str)
             return a.encode("ascii") + b"\x00" #nul-terminate the string and pass it back
+        elif cmd.lower() == "q":
+            if cmd == "q":
+                warn("signed Int64s are untested")
+            cmd = "!" + {"q": "i", "Q": "I"}[cmd]
+            # we do Int64s by reducing them to two Int32s and concatenanting
+            # we should be able to ignore because the bitmask will handle that ...
+            #...hm. how do negatives affect the results?
+            return fm(cmd, 0xFFFFFFFF00000000 & a) + fm(cmd, 0x00000000FFFFFFFF & a) #network order means most significant bytes first! we concate
         
         # otherwise fall back on normal
-        return struct.pack("!" + cmd, a)
+        return struct.pack("!" + cmd, a) # ! means 'network order' per https://docs.python.org/3.4/library/struct.html
     
     return bytes.join(b"", (fm(c, a) for c,a in zip(pgstruct_commands(fmt), args)))
     
-    return struct.pack("!"+fmt, *args) # ! means 'network order' per https://docs.python.org/3.4/library/struct.html
 
 #print(pgpack("sh", "i am a merry model", 888))
 
@@ -111,10 +123,10 @@ def pgunpack_from(fmt, buffer, offset=0):
             cmds = []
             
             for cmd in pgstruct_commands(fmt):
-                if cmd == "s":
+                if cmd in ["s", "q", "Q"]:
                     if cmds:
                         yield str.join(" ", cmds); cmds = []
-                    yield "s"
+                    yield cmd
                 else:
                     cmds.append(cmd)
             
@@ -127,7 +139,11 @@ def pgunpack_from(fmt, buffer, offset=0):
                 e = buffer.find(b"\x00", offset)
                 yield buffer[offset:e].decode("ascii")
                 offset = e + 1
-                
+            elif cmd.lower() == "q": #Int64 support
+                cmd = {"q": "i", "Q": "I"}[cmd]
+                M, m = struct.unpack_from("!" + cmd + cmd, buffer, offset) 
+                yield M << 32 | m #do the reverse of the concatenation in pgpack(): extract each 4 byte block and combine them (with our old friends bitshift and or)
+                offset += 8 #8 bytes in a 64 bit number
             else:
                 cmd = "!" + cmd # ! means 'network order' per https://docs.python.org/3.4/library/struct.html
                 w = struct.calcsize(cmd)
@@ -583,6 +599,24 @@ class Replication_XLogData(Replication_Message):
         return "<%s> [%s..%s] @ %s" % (type(self).__name__, self.start, self.end, self.clock)
 
 
+
+# for timestamping
+import datetime
+from calendar import timegm
+datetime.timegm = timegm #"I can’t for the life of me understand why the function timegm is part of the calendar module."
+del timegm               #http://ruslanspivak.com/2011/07/20/how-to-convert-python-utc-datetime-object-to-unix-timestamp/
+
+def pgtime(t):
+    "make a postgres time more consistent by converting their integer format to python datetime objects"
+    " a postgres time is integer microseconds since 2000-01-01"
+    " standard unix time is a floating point in seconds (1e6 microseconds!) since 1970-01-01"
+    " so some arithmetic is involved here, and for that we need the datetime module"
+    
+    t /= 1e6 #convert to seconds. note! as written, depends on py3k __division__!
+    epoch = datetime.datetime(2000, 1, 1)
+    dt = datetime.datetime.fromtimestamp(t) - datetime.datetime.fromtimestamp(0)
+    return epoch + dt
+
 class Replication_Keepalive(Replication_Message):
     " end is 'The current end of WAL on the server'"
     " clock is the server's system clock when it sent the message server "
@@ -594,13 +628,14 @@ class Replication_Keepalive(Replication_Message):
     
     def __init__(self, end, clock, ping):
         self.end = end
-        self.clock = clock
+        # convert
+        self.clock = pgtime(clock)
         self.ping = ping
         print("Y OYO YOU OU OU OU OU O", self.ping)
     
     @classmethod
     def parse(cls, payload):
-        (end, clock, ping), p = pgunpack("L L ?", payload)
+        end, clock, ping = pgunpack("Q Q ?", payload)
         return cls(end, clock, ping)
     
     def __str__(self):
@@ -841,6 +876,8 @@ class PgReplicationClient:
 
 
 def test():
+    print(Replication_Keepalive.parse(b'\x00\x00\x00\x00\x01|9\xc8\x00\x01\xa0\x18\xd7\x86\xd9\x9d\x01')) #testing int64 support
+    
     import threading
     import IPython
     pg = PgReplicationClient("kousu", "postgres")
