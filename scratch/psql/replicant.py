@@ -19,6 +19,8 @@ from collections import OrderedDict
 import select
 import sys
 
+import traceback
+
 # possible messages at http://www.postgresql.org/docs/current/static/protocol-message-formats.html
 # only ones marked "B" are ones we might need to parse
 
@@ -27,7 +29,8 @@ import sys
 def pgstruct_commands(fmt):
     "scan and parse a postgres struct format string, which is the same as a regular format string except that it cannot have its endianness specified (because postgres uses network (big) endianness) and 's' means nul-terminated non-fixed-size C strings"
     "also, for now, we make the assumption that strings mean ascii strings, though supposedly there's a way to configure this"
-    
+    if len(fmt) == 0:
+        return
     assert fmt[0] not in ["@", "=", "<", ">", "!"] #*disallow* user choice of endianness
     p = 0 #current head
     # allowed chars in a format string: spaces (ignored), the list of single char commands, and decimal digits but only *immediately* preceeding their single char
@@ -323,7 +326,31 @@ class ReadyForQuery(Message):
     def __str__(self):
         return "<%s::%s>" % (type(self).__name__, self.state)
 
-
+class ErrorResponse(Message):
+    TYPECODE = b"E"
+    SOURCE = S.B
+    "The message body consists of one or more identified fields, followed by a zero byte as a terminator. Fields can appear in any order. For each field there is the following:"
+    def __init__(self, fields):
+        "fields is a dictionary mapping single characters to strings. The chars are message types (currently, it is not worth the effort to make proper classes for all these)"
+        self.fields = fields
+    
+    @classmethod
+    def parse(cls, payload):
+        p = 0
+        fields = {}
+        while p < len(payload):
+            (code, content), p = pgunpack_from("c s", payload, p)
+            if code == b"\x00":
+                break
+            code = code.decode("ascii")
+            print(code, content, p)
+            fields[code] = content
+        assert p == len(payload)
+        return cls(fields)
+    
+    def __str__(self):
+        return "<%s> %s" % (type(self).__name__, self.fields)
+        
 class CommandComplete(Message):
     "Identifies the message as a command-completed response."
     "actually has several sub-classes, which we implement here (in line with the protocol) as a .tag field and the CommandComplete.Tag tree of classes"
@@ -484,20 +511,150 @@ class DataRow(Message):
     def __str__(self):
         return "<%s> %s" % (type(self).__name__, self.fields)
 
+
+class CopyData(Message):
+    "Data that forms part of a COPY data stream. Messages sent from the backend will always correspond to single data rows, but messages sent by frontends might divide the data stream arbitrarily."
+    TYPECODE = b"d"
+    SOURCE = S.FB
     
+    def __init__(self, data):
+        self.data = data
+    
+    def render(self):
+        return self.data
+        
+    @classmethod
+    def parse(cls, payload):
+        return cls(payload)
+    def __str__(self):
+        return "<%s> %s" % (type(self).__name__, self.data)
+
+
+
+
+MESSAGES = dict((m.TYPECODE, m) for m in locals().values() if type(m) is type and issubclass(m, Message))
 
 ### replication protocol messages 
 ### all of these are passed as queries ("Q") messages
 ### http://www.postgresql.org/docs/current/static/protocol-replication.html
 
 # XXX put these in a submodule
+# 
+
 class Replication_IdentifySystem(Query):
     def __init__(self):
         super().__init__("IDENTIFY_SYSTEM")
 
+class Replication_Start(Query):
+    def __init__(self, timeline, logpos):
+        print(logpos)
+        assert len(logpos.split("/")) == 2
+        super().__init__("START_REPLICATION %s TIMELINE %s" % (logpos, timeline))
+
+# so, a question:
+#  who owns who (as usual):
+ # should Repliaction_Message create a hidden CopyData and call its render()? 
+ # should Replication_Message be a *subclass* of CopyData? (but this can't work, because the inner .TYPECODE would stomp the outer one)
+ # 
+
+class Replication_Message(Message):
+    "messages sent in the replication subprotocol, layered over Queries and CopyDatas, do not come with a message length field, so we need to subclass and override render"
+    def render(self):
+        return self.TYPECODE + self.payload()
+
+class Replication_XLogData(Replication_Message):
+    TYPECODE = b"w"
+    SOURCE = S.B
+    # this message is only ever found *inside* of a CopyData
+    # but it's not really, itself, a CopyData message
+    
+    def __init__(self, start, end, clock, records):
+        self.start, self.end = start, end
+        self.clock = clock
+        self.records = records
+    
+    @classmethod
+    def parse(cls, payload):
+        (start, end, clock), p = pgunpack_from("L L L", payload)
+        records = payload[p:] #XXX the records should be parsed!!
+        return cls(start, end, clock, records)
+    
+    def __str__(self):
+        return "<%s> [%s..%s] @ %s" % (type(self).__name__, self.start, self.end, self.clock)
+
+
+class Replication_Keepalive(Replication_Message):
+    " end is 'The current end of WAL on the server'"
+    " clock is the server's system clock when it sent the message server "
+    " ping is a boolean where 1 means the server will disconnect you if you don't reply with a Replication_StandbyStatusUpdate or a Replication_HotStandbyFeedbackMessage soon"
+    TYPECODE = b"k"
+    SOURCE = S.B
+    # this message is only ever found *inside* of a CopyData
+    # but it's not really, itself, a CopyData message
+    
+    def __init__(self, end, clock, ping):
+        self.end = end
+        self.clock = clock
+        self.ping = ping
+        print("Y OYO YOU OU OU OU OU O", self.ping)
+    
+    @classmethod
+    def parse(cls, payload):
+        (end, clock, ping), p = pgunpack("L L ?", payload)
+        return cls(end, clock, ping)
+    
+    def __str__(self):
+        return "<%s> [..%s] @ %s; %s" % (type(self).__name__, self.end, self.clock, "[PING]" if self.ping else "")
+
+class Replication_HotStandbyFeedbackMessage(Replication_Message):
+    def __init__(self, xmin, clock=None, epoch=0):
+        "clock defaults to time.time()" 
+        "epoch seems badly undocumented e.g. <http://www.postgresql.org/docs/current/static/app-pgresetxlog.html> 'the transaction ID epoch is not actually stored anywhere in the database except in the field that is set by pg_resetxlog,'?? so it defaults to 0"
+        "if xmin is 0 it is considered notice that this ping is going to 'turn off' whatever that means"
+        self.xmin = xmin
+        self.clock = clock
+        self.epoch = epoch
+        
+    def render(self):
+        # if clock isn't set we set it here, at render-time instead of at init time, to reduce the lag latency implicit in the timestamp as much as possible 
+        #XXX this time.time() call is almost certainly wrong because the postgres epoch is year 2000
+        clock = self.clock if self.clock is not None else time.time()
+        return pgpack("L I I", clock, self.xmin, self.epoch)
+
+class FormatMode(Enum):
+    Text = 0
+    Binary = 1
+invert_enum(FormatMode)
+
+class CopyBothResponse(Message):
+    TYPECODE = b"W"
+    SOURCE = S.B
+    
+    def __init__(self, format, columnformats):
+        if format == FormatMode.Text:
+            assert all(f == FormatMode.Text for f in columnformats) #All must be zero if the overall copy format is textual.
+        self.format = format
+        self.columns = columnformats
+    
+    @classmethod
+    def parse(cls, payload):
+        (format, n), p = pgunpack_from("b h", payload)
+        columns, p = pgunpack_from("h"*n, payload, p)
+        format = FormatMode.__reverse_members__[format]
+        columns = [FormatMode.__reverse_members__[f] for f in columns] #XXX there's a DoS here! should use .get() or something. or maybe wrap the whole parsing shennanigans in a try-catch
+        
+        return cls(format, columns)
+    
+    def __str__(self):
+        return "<%s> %s | %s" % (type(self).__name__, self.format, self.columns)
+
+# oh my gosh
+# there is a protocol identical in structure to the basic protocol that in walsender mode is layered on top of CopyData
+
+REPLICATION_MESSAGES = dict((m.TYPECODE, m) for m in locals().values() if type(m) is type and issubclass(m, Replication_Message))
+
 #-----------------------
 
-MESSAGES = dict((m.TYPECODE, m) for m in locals().values() if type(m) is type and issubclass(m, Message))
 
 class PgClient:
     "layer the postgres message-based protocol on top of stream-based TCP"
@@ -529,8 +686,19 @@ class PgClient:
         # there's a fiddly thing: *if* we are the server then the first message has a missing typecode for recv(1) will break everything
         # but this file is currently only implementing the client protocol so whatever
         typecode = self.sock.recv(1)
-        k, = pgunpack("I", self.sock.recv(4))
+        if typecode == b"":
+            raise SocketClosed
+        # XXX this can got bad because the socket might die at *any one* of these calls
+        # and the socket module is a thin layer on the traditional socket API
+        # which means: return codes, not exceptions
+        
+        k = self.sock.recv(4)
+        if k == b"":
+            raise SocketClosed
+        k, = pgunpack("I", k)
         payload = self.sock.recv(k-4) #-4 because k counts itself, but we've already recv()'d it
+        if payload == b"":
+            raise SocketClosed
         
         #print(typecode)
         message = MESSAGES.get(typecode)
@@ -551,6 +719,15 @@ class PgClient:
         
         return message
     
+    def messages(self):
+        while True:
+            try:
+                yield self.recv()
+            except Exception as e:
+                print("it bork:", e) #DEBUG
+                traceback.print_exc()
+                pass
+    
     def process(self):
         "; this function mostly exists to be run on a background thread"
         
@@ -563,7 +740,7 @@ class PgClient:
         # It's *also* complicated because there's layered protocols, though they aren't called that
         # for example, the "walsender" mode is layered on SQL messages ("Q"ueries and "D"/"C" responses); like, IDENTIFY_SYSTEM returns a SQL table, even though it's metadata that isn't actually SQL.
         # Maybe we should actually implement some lines here, like "while Reading A Query Response: m = self.recv(); ..." and..stream out the result to a queue of some sort? a queue labelled by the table name or ..something? oh, but even more complicated for us, the protocol does not embed table names in the responses.
-        # the protocol has "ReadyForQuery" to help us, at least
+        # the protocol has "ReadyForQuery" to help us, at least.
         
         while self._running:
             # this would be cleaner if I could say "select [pg, sys.stdin]"
@@ -573,7 +750,13 @@ class PgClient:
             # but it seems sort of strange to use TCP just to talk from one thread to another?
             #..but maybe it's not. That's what multiprocessing would do. 
             if Sr:
-                m = self.recv()
+                try:
+                    m = self.recv()
+                except Exception as e:
+                    #...?
+                    print("it bork:", e)
+                    traceback.print_exc()
+                    break #???
                 #...?
                     
                     #...the best thing to do might actually be to spin off a thread...
@@ -583,13 +766,84 @@ class PgClient:
                 
         self.sock.close()
         self.sock = None
+        
+class SocketClosed(Exception): pass #XXX this is dumb. fix it better. please.
 
-import threading
-import IPython
+class PgReplicationClient:
+
+    def __init__(self, user, database=None, server = ("localhost", 5432)):
+        self._pg = PgClient(user, database, {"replication": "on"}, server)
+        for m in self._pg.messages(): #chew through the startup headers (_pg is designed to cache anything it cares about in this set)
+            if isinstance(m, ReadyForQuery):
+                break
+        self._pg.send(Replication_IdentifySystem())
+        header_message = self._pg.recv() #this should give a RowDescription
+        data_message = self._pg.recv() #this should give a DataRow to go with
+        column_ptrs = {f[0]: i for i, f in enumerate(header_message.fields)} #TODO: move this inside of RowDescription
+        
+        # extract the log ids from the header
+        
+        tli = data_message.fields[column_ptrs["timeline"]]
+        xlogpos = data_message.fields[column_ptrs["xlogpos"]]
+        print(tli)
+        print(xlogpos)
+        complete_message = self._pg.recv()
+        ready_message = self._pg.recv()
+        assert isinstance(complete_message, CommandComplete) and isinstance(ready_message, ReadyForQuery), "Protocol got out of sync!"
+        
+        # and use them to start replication!
+        #self.send(Replication_Start(tli, xlogpos))
+        
+        self._running = True
+    
+    def send(self, message):
+        print("<[[[", message)
+        if isinstance(message, Replication_Message): #XXX this should be handled by polymorphism inside of the classes!!!
+            message = CopyData(message.render())
+        self._pg.send(message)
+    
+    def recv(self):
+        
+        message = self._pg.recv()
+        if isinstance(message, CopyData):
+            # parse out the copydatas
+            typecode, payload = message.data[0:1], message.data[1:]
+            
+            # now, we turn message into a different sort of message
+            message = REPLICATION_MESSAGES.get(typecode)
+            if message is None:
+                message = UnknownMessage(typecode, payload)
+            else:
+                message = message.parse(payload)
+        print("]]]>", message)
+        return message   #but the lower level messages are still useful sometimes?? hm
+    
+    def messages(self):
+        "generator"
+        while True:
+            try:
+                yield self.recv()
+            except SocketClosed:
+                break
+            except Exception as e:
+                print("it bork:", e) #DEBUG
+                traceback.print_exc()
+                pass
+                
+    def process(self):
+        for m in self.messages():
+            self._pg._running = self._running
+            if isinstance(m, Replication_Keepalive):
+                if m.ping:
+                    self.send(Replication_HotStandbyFeedbackMessage(-1)) #why -1? why not! "the spirit of Y_0"
+            pass
+            
+
 
 def test():
-    pg = PgClient("kousu", "postgres", {"replication": "on"}) #this line is picky!! I'll fix it up!!
-    pg.send(Replication_IdentifySystem())
+    import threading
+    import IPython
+    pg = PgReplicationClient("kousu", "postgres")
     # now, I would like to wait here for 
     #...register a promise?
     #
