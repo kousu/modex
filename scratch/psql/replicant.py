@@ -613,9 +613,9 @@ def pgtime(t):
     " so some arithmetic is involved here, and for that we need the datetime module"
     
     t /= 1e6 #convert to seconds. note! as written, depends on py3k __division__!
-    epoch = datetime.datetime(2000, 1, 1)
-    dt = datetime.datetime.fromtimestamp(t) - datetime.datetime.fromtimestamp(0)
-    return epoch + dt
+    epoch = datetime.datetime(2000, 1, 1) #the postgres epoch
+    dt = datetime.datetime.fromtimestamp(t) - datetime.datetime.fromtimestamp(0) #write 't' as a timedelta, regardless of what the system epoch is set to
+    return epoch + dt #this returns a datetime which (ignoring the necessary typecasts) is 2000-01-01 + t
 
 class Replication_Keepalive(Replication_Message):
     " end is 'The current end of WAL on the server'"
