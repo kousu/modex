@@ -1,0 +1,7 @@
+DB Questions
+
+Is it a good idea to replicate?
+What does filtered replication usually look like?
+How does the web usually replicate data? Are there any standards in this direction? Or do people just write custom URL handlers which do a hard-coded query and return the results in some custom.
+Do you think dat is moving in the right direction, or poorly replicating work that already exists?
+What are the lock-ins and tradeoffs between Document, SQL, Cassandra, and Filesystem databases?
