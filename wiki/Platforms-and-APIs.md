@@ -23,6 +23,7 @@ HTML5 is extremely powerful. It has a lot of new widgets (under form elements: s
 ## Visualization
 
 * d3js
+* [dcjs](https://github.com/dc-js/dc.js) -- d3 married to crossfilter for multidimensional, interactively linked, charts
 * Square's [cubism.js](http://square.github.io/cubism/) for visualizing live time series data
 * [graphite](http://graphite.wikidot.com/)
 * Native HTML5 (e.g. see [our html5 widget demo](../../scratch/html5/widgets))
@@ -32,27 +33,38 @@ HTML5 is extremely powerful. It has a lot of new widgets (under form elements: s
 
 ### Encapsulated Visualization Libraries
 
-* [Mike Bostock's Reusable d3 chart spec](http://bost.ocks.org/mike/chart/)
-  * and the [official results](https://github.com/d3/d3-plugins), so far 
-  * 
-* [dimplejs](http://dimplejs.org/) - _this looks pretty underpowered_
-* [Vega](https://github.com/trifacta/vega)
-  * [Vincent](https://github.com/wrobstory/vincent) - _A Python to Vega translator_
-* [NVD3](http://nvd3.org/)
-* [Miso](http://misoproject.com/)   - _this one looks super promising_
-* [DexCharts](https://github.com/PatMartin/DexCharts)
-* [Flot](http://www.flotcharts.org/)
-* [Chart.JS](http://www.chartjs.org/)
-* Scrap reusable d3 examples:
-  * http://jsfiddle.net/johnwun/8hSGP/
-  * [textrotate()](http://bl.ocks.org/ezyang/4236639)
-  * [pie-chart](https://github.com/gajus/pie-chart)
-  * [interactive histograms](https://github.com/gajus/interdependent-interactive-histograms)
-  * ["slopegraph"](http://bl.ocks.org/biovisualize/4348024) (actually a very basic network visualization)
-  * [demo of building a reusable component from a nonreusable one](http://bl.ocks.org/milroc/5519642)
-  * [messy errorbar scatterplot](http://bl.ocks.org/chrisbrich/5044999)
-  * ["hello world" in reusable d3](http://bl.ocks.org/cpbotha/5073718)
-  * [simple bar chart](http://jsfiddle.net/johnwun/8hSGP/)
+* [morris](http://morrisjs.github.io/morris.js/)
+* d3-based:
+  * [Mike Bostock's Reusable d3 chart spec](http://bost.ocks.org/mike/chart/)
+    * and the [official results](https://github.com/d3/d3-plugins), so far 
+  * Scrap reusable d3 examples:
+    * http://jsfiddle.net/johnwun/8hSGP/
+    * [textrotate()](http://bl.ocks.org/ezyang/4236639)
+    * [pie-chart](https://github.com/gajus/pie-chart)
+    * [interactive histograms](https://github.com/gajus/interdependent-interactive-histograms)
+    * ["slopegraph"](http://bl.ocks.org/biovisualize/4348024) (actually a very basic network visualization)
+    * [demo of building a reusable component from a nonreusable one](http://bl.ocks.org/milroc/5519642)
+    * [messy errorbar scatterplot](http://bl.ocks.org/chrisbrich/5044999)
+    * ["hello world" in reusable d3](http://bl.ocks.org/cpbotha/5073718)
+    * [simple bar chart](http://jsfiddle.net/johnwun/8hSGP/)
+  * [NVD3](http://nvd3.org/)
+  * [c3](http://c3js.org/)
+* Charts (linegraphs, scatterplots):
+  * [dimplejs](http://dimplejs.org/) - _this looks pretty underpowered_
+  * [Vega](https://github.com/trifacta/vega)
+    * [Vincent](https://github.com/wrobstory/vincent) - _A Python to Vega translator_
+  * [Miso](http://misoproject.com/)   - _this one looks super promising_
+  * [DexCharts](https://github.com/PatMartin/DexCharts)
+  * [Flot](http://www.flotcharts.org/)
+  * [Chart.JS](http://www.chartjs.org/)
+  * [dygraphs](http://dygraphs.com/)
+* Timeseries
+  * [Rickshaw](http://code.shutterstock.com/rickshaw/)
+  * [Epoch](http://fastly.github.io/epoch/)
+* Networks:
+  * [SigmaJS](http://sigmajs.org/)
+* Heatmaps
+  * [heatmap.js](http://www.patrick-wied.at/static/heatmapjs/) 
 
 
 ### Maps
@@ -226,7 +238,7 @@ Examples of isolating
 * OLAP
     * [Cubes](http://cubes.databrewery.org/) which wraps SQL into OLAP _**pay attention** to this one_
 * TimeSeries
-    * Square's [cube](http://square.github.io/cube/) 
+    * Square's [cube](http://square.github.io/cube/)
 * NoSQL (aka Document Databases)
     * [MongoDB](http://www.mongodb.org/) - _**NB**: commercial use is a 5000$ license_
     * [CouchDB](http://couchdb.readthedocs.org/)
