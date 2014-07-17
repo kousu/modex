@@ -6,6 +6,7 @@ scrap notes:
 
 - the protocol is a mixture of binary and string data
 - struct.(un)pack is useful for us for the binary data, but the string data is C-strings, which struct.pack does not handle (it handles fixed sized strings and pascal strings). This means we need to do scanning to parse these parts.
+- the possible messages at http://www.postgresql.org/docs/current/static/protocol-message-formats.html; this prototype focuses on the client protocol, meaning only ones marked "B"(ackend) have parse() written and only ones marked "F"(rontend) have payload() written
 
 """
 
@@ -18,16 +19,36 @@ from itertools import chain
 from collections import OrderedDict
 import select
 import sys
+import time
 
 import traceback
 
 from warnings import warn
 
-# possible messages at http://www.postgresql.org/docs/current/static/protocol-message-formats.html
-# only ones marked "B" are ones we might need to parse
 
 
 
+# for timestamping
+import datetime
+from calendar import timegm
+datetime.timegm = timegm #"I can’t for the life of me understand why the function timegm is part of the calendar module."
+del timegm               #http://ruslanspivak.com/2011/07/20/how-to-convert-python-utc-datetime-object-to-unix-timestamp/
+
+def pgtime(t):
+    "Make timekeeping more consistent by converting from system time to postgres time"
+    "system time (for us) is whatever type is returned by time.time()"
+    " usually, this is standard unix time: a floating point in seconds (1e6 microseconds!) since 1970-01-01"
+    "(but if not, the difference *should* be transparent to us, because we use the datetime module)"
+    " a postgres time is integer microseconds since 2000-01-01"
+    
+    epoch = datetime.datetime(2000, 1, 1) #the postgres epoch
+    now = datetime.datetime.fromtimestamp(t)
+    dt = now - epoch #find the time since the epoch
+    v = int(dt.total_seconds()*1e6) #convert to integer microseconds
+    assert 0 <= v < 1<<64, "pgtime must be a 64-bit unsigned integer"
+    return v
+    
+    
 def pgstruct_commands(fmt):
     "scan and parse a postgres struct format string, which is the same as a regular format string except that it cannot have its endianness specified (because postgres uses network (big) endianness) and 's' means nul-terminated non-fixed-size C strings"
     "also, for now, we make the assumption that strings mean ascii strings, though supposedly there's a way to configure this"
@@ -63,7 +84,10 @@ def pgstruct_commands(fmt):
         assert cmd[-1] not in ["p", "n", "N", "P"], "%s only available in native struct format, which postgres, using network format, does not use" % cmd[-1]
         # "q", "Q"]
         
-        yield cmd        #assert c in ["x","c","b","B","?","h","H","i","I","l","L","f","d","s","p", "n","N", "P", "q","Q"], "bad char in struct format"
+        
+        #assert cmd in ["x","c","b","B","?","h","H","i","I","l","L","f","d","s","p", "n","N", "P", "q","Q"], "bad char in struct format"
+        yield cmd
+        
               
 #print(list(pgstruct_commands("x x h y hy h x   3xx xx x")))
 
@@ -85,11 +109,12 @@ def pgpack(fmt, *args):
         elif cmd.lower() == "q":
             if cmd == "q":
                 warn("signed Int64s are untested")
-            cmd = "!" + {"q": "i", "Q": "I"}[cmd]
+            cmd = {"q": "i", "Q": "I"}[cmd]
             # we do Int64s by reducing them to two Int32s and concatenanting
             # we should be able to ignore because the bitmask will handle that ...
             #...hm. how do negatives affect the results?
-            return fm(cmd, 0xFFFFFFFF00000000 & a) + fm(cmd, 0x00000000FFFFFFFF & a) #network order means most significant bytes first! we concate
+            
+            return fm(cmd, a>>32) + fm(cmd, 0xFFFFFFFF & a) #network order means most significant bytes first! we concate
         
         # otherwise fall back on normal
         return struct.pack("!" + cmd, a) # ! means 'network order' per https://docs.python.org/3.4/library/struct.html
@@ -171,13 +196,13 @@ class MessageSource:
     "in postgres each message type, and a small number are bidirectional"
     def __init__(self, backend=False, frontend=False):
         self.backend, self.frontend = backend, frontend
-#aliases to make writing this easier
+#MessageSource enum-like aliases, for brevity
 S = MessageSource
 S.F = MessageSource(frontend=True)
 S.B = MessageSource(backend=True)
 S.FB = MessageSource(backend=True, frontend=True)
-   
-   
+
+
 # NB: 
 # messaging functions...
 class Message(object):
@@ -536,7 +561,7 @@ class CopyData(Message):
     def __init__(self, data):
         self.data = data
     
-    def render(self):
+    def payload(self):
         return self.data
         
     @classmethod
@@ -546,6 +571,30 @@ class CopyData(Message):
         return "<%s> %s" % (type(self).__name__, self.data)
 
 
+
+
+class CopyBothResponse(Message):
+    "This message is used only for Streaming Replication, but it happens at the outer layer protocol, so it must be grouped up here"
+    TYPECODE = b"W"
+    SOURCE = S.B
+    
+    def __init__(self, format, columnformats):
+        if format == FormatMode.Text:
+            assert all(f == FormatMode.Text for f in columnformats) #All must be zero if the overall copy format is textual.
+        self.format = format
+        self.columns = columnformats
+    
+    @classmethod
+    def parse(cls, payload):
+        (format, n), p = pgunpack_from("b h", payload)
+        columns, p = pgunpack_from("h"*n, payload, p)
+        format = FormatMode.__reverse_members__[format]
+        columns = [FormatMode.__reverse_members__[f] for f in columns] #XXX there's a DoS here! should use .get() or something. or maybe wrap the whole parsing shennanigans in a try-catch
+        
+        return cls(format, columns)
+    
+    def __str__(self):
+        return "<%s> %s | %s" % (type(self).__name__, self.format, self.columns)
 
 
 MESSAGES = dict((m.TYPECODE, m) for m in locals().values() if type(m) is type and issubclass(m, Message))
@@ -573,10 +622,15 @@ class Replication_Start(Query):
  # should Replication_Message be a *subclass* of CopyData? (but this can't work, because the inner .TYPECODE would stomp the outer one)
  # 
 
+#
+
 class Replication_Message(Message):
-    "messages sent in the replication subprotocol, layered over Queries and CopyDatas, do not come with a message length field, so we need to subclass and override render"
+    "in the replication subprotocol, messages from the client are embedded in Queries and messages from the server, in CopyDatas (except for the initial response to IDENTIFY_SYSTEM, which is a RowDescription/DataRow pair), and they do not come with a message length field"
+    " we handle this wrapping and unwrapping below, in the event loop; the classes only know how to render themselves at the replication layer "
     def render(self):
+        assert self.TYPECODE is not None, "You need to define TYPECODE in class %s" % type(self)
         return self.TYPECODE + self.payload()
+    
 
 class Replication_XLogData(Replication_Message):
     TYPECODE = b"w"
@@ -600,38 +654,22 @@ class Replication_XLogData(Replication_Message):
 
 
 
-# for timestamping
-import datetime
-from calendar import timegm
-datetime.timegm = timegm #"I can’t for the life of me understand why the function timegm is part of the calendar module."
-del timegm               #http://ruslanspivak.com/2011/07/20/how-to-convert-python-utc-datetime-object-to-unix-timestamp/
-
-def pgtime(t):
-    "make a postgres time more consistent by converting their integer format to python datetime objects"
-    " a postgres time is integer microseconds since 2000-01-01"
-    " standard unix time is a floating point in seconds (1e6 microseconds!) since 1970-01-01"
-    " so some arithmetic is involved here, and for that we need the datetime module"
-    
-    t /= 1e6 #convert to seconds. note! as written, depends on py3k __division__!
-    epoch = datetime.datetime(2000, 1, 1) #the postgres epoch
-    dt = datetime.datetime.fromtimestamp(t) - datetime.datetime.fromtimestamp(0) #write 't' as a timedelta, regardless of what the system epoch is set to
-    return epoch + dt #this returns a datetime which (ignoring the necessary typecasts) is 2000-01-01 + t
 
 class Replication_Keepalive(Replication_Message):
     " end is 'The current end of WAL on the server'"
-    " clock is the server's system clock when it sent the message server "
+    " clock is the server's system clock when it sent the message server; if you specify this it must be in postgres format."
     " ping is a boolean where 1 means the server will disconnect you if you don't reply with a Replication_StandbyStatusUpdate or a Replication_HotStandbyFeedbackMessage soon"
     TYPECODE = b"k"
     SOURCE = S.B
     # this message is only ever found *inside* of a CopyData
     # but it's not really, itself, a CopyData message
     
-    def __init__(self, end, clock, ping):
+    def __init__(self, end, clock=None, ping=True):
         self.end = end
-        # convert
-        self.clock = pgtime(clock)
+        if clock is None:
+            clock = pgtime(time.time())
+        self.clock = clock
         self.ping = ping
-        print("Y OYO YOU OU OU OU OU O", self.ping)
     
     @classmethod
     def parse(cls, payload):
@@ -641,47 +679,36 @@ class Replication_Keepalive(Replication_Message):
     def __str__(self):
         return "<%s> [..%s] @ %s; %s" % (type(self).__name__, self.end, self.clock, "[PING]" if self.ping else "")
 
+class Replication_StatusUpdate(NotImplementedError):
+    TYPECODE = b"r"
+    SOURCE = S.F
+    pass
+
 class Replication_HotStandbyFeedbackMessage(Replication_Message):
+    TYPECODE = b"h"
+    SOURCE = S.F
+    
     def __init__(self, xmin, clock=None, epoch=0):
-        "clock defaults to time.time()" 
+        "clock is microseconds since midnight 2000-01-01. it defaults to the current time" 
         "epoch seems badly undocumented e.g. <http://www.postgresql.org/docs/current/static/app-pgresetxlog.html> 'the transaction ID epoch is not actually stored anywhere in the database except in the field that is set by pg_resetxlog,'?? so it defaults to 0"
         "if xmin is 0 it is considered notice that this ping is going to 'turn off' whatever that means"
         self.xmin = xmin
+        if clock is None:
+            clock = pgtime(time.time())
         self.clock = clock
+            
         self.epoch = epoch
         
-    def render(self):
+    def payload(self):
         # if clock isn't set we set it here, at render-time instead of at init time, to reduce the lag latency implicit in the timestamp as much as possible 
         #XXX this time.time() call is almost certainly wrong because the postgres epoch is year 2000
-        clock = self.clock if self.clock is not None else time.time()
-        return pgpack("L I I", clock, self.xmin, self.epoch)
+        return pgpack("Q I I", self.clock, self.xmin, self.epoch)
 
 class FormatMode(Enum):
     Text = 0
     Binary = 1
 invert_enum(FormatMode)
 
-class CopyBothResponse(Message):
-    TYPECODE = b"W"
-    SOURCE = S.B
-    
-    def __init__(self, format, columnformats):
-        if format == FormatMode.Text:
-            assert all(f == FormatMode.Text for f in columnformats) #All must be zero if the overall copy format is textual.
-        self.format = format
-        self.columns = columnformats
-    
-    @classmethod
-    def parse(cls, payload):
-        (format, n), p = pgunpack_from("b h", payload)
-        columns, p = pgunpack_from("h"*n, payload, p)
-        format = FormatMode.__reverse_members__[format]
-        columns = [FormatMode.__reverse_members__[f] for f in columns] #XXX there's a DoS here! should use .get() or something. or maybe wrap the whole parsing shennanigans in a try-catch
-        
-        return cls(format, columns)
-    
-    def __str__(self):
-        return "<%s> %s | %s" % (type(self).__name__, self.format, self.columns)
 
 # oh my gosh
 # there is a protocol identical in structure to the basic protocol that in walsender mode is layered on top of CopyData
@@ -690,6 +717,10 @@ REPLICATION_MESSAGES = dict((m.TYPECODE, m) for m in locals().values() if type(m
 
 #-----------------------
 
+class StopCoroutine(StopIteration): pass
+
+
+#IDEA:
 
 class PgClient:
     "layer the postgres message-based protocol on top of stream-based TCP"
@@ -718,8 +749,8 @@ class PgClient:
     
     def recv(self):
         # block
-        # there's a fiddly thing: *if* we are the server then the first message has a missing typecode for recv(1) will break everything
-        # but this file is currently only implementing the client protocol so whatever
+        # there's a fiddly thing: *if* we are the server then the first message (for historical reasons) has a missing typecode and the recv(1) and will break everything
+        # solution: this is currently only implementing the client protocol, so whatever
         typecode = self.sock.recv(1)
         if typecode == b"":
             raise SocketClosed
@@ -761,11 +792,21 @@ class PgClient:
             except Exception as e:
                 print("it bork:", e) #DEBUG
                 traceback.print_exc()
-                pass
+                raise
+    
+    def process_co(self):
+        "process() rewritten as a coroutine"
+        "instead of setting ._running=False, use .throw(StopCoroutine)"
+        
+        
+        self.send(StartupMessage(user, database, **options))
+        
+        
     
     def process(self):
         "; this function mostly exists to be run on a background thread"
         
+        self.send(StartupMessage(user, database, **options))
         # dealing with this protocol is complicated because it's not a simple request-response protocol. A single request can result in multiple responses, which sometimes come in a particular order and sometimes do not. We're facing a state machine, and that makes it difficult to write cleanly (i.e. functionally).
         # e.g. a single response to a query is at least three messages:
         # 1) a RowDescription, giving the fieldnames and order (in csv, the first header row)
@@ -804,8 +845,8 @@ class PgClient:
         
 class SocketClosed(Exception): pass #XXX this is dumb. fix it better. please.
 
-class PgReplicationClient:
 
+class PgReplicationClient:
     def __init__(self, user, database=None, server = ("localhost", 5432)):
         self._pg = PgClient(user, database, {"replication": "on"}, server)
         for m in self._pg.messages(): #chew through the startup headers (_pg is designed to cache anything it cares about in this set)
@@ -816,29 +857,27 @@ class PgReplicationClient:
         data_message = self._pg.recv() #this should give a DataRow to go with
         column_ptrs = {f[0]: i for i, f in enumerate(header_message.fields)} #TODO: move this inside of RowDescription
         
-        # extract the log ids from the header
-        
+        # extract the timeline ID (tli) from the header
         tli = data_message.fields[column_ptrs["timeline"]]
         xlogpos = data_message.fields[column_ptrs["xlogpos"]]
-        print(tli)
-        print(xlogpos)
+        print("We are replicating timeline", tli, "from position", xlogpos)
         complete_message = self._pg.recv()
         ready_message = self._pg.recv()
         assert isinstance(complete_message, CommandComplete) and isinstance(ready_message, ReadyForQuery), "Protocol got out of sync!"
         
-        # and use them to start replication!
-        #self.send(Replication_Start(tli, xlogpos))
+        # and use it to start replication!
+        self.send(Replication_Start(tli, xlogpos))
         
         self._running = True
     
     def send(self, message):
         print("<[[[", message)
-        if isinstance(message, Replication_Message): #XXX this should be handled by polymorphism inside of the classes!!!
+        if isinstance(message, Replication_Message): #XXX this should be handled by polymorphism!
             message = CopyData(message.render())
+        print("REPLICATION: SENDING", message.render())
         self._pg.send(message)
     
     def recv(self):
-        
         message = self._pg.recv()
         if isinstance(message, CopyData):
             # parse out the copydatas
@@ -867,16 +906,33 @@ class PgReplicationClient:
                 
     def process(self):
         for m in self.messages():
+            print(m)
             self._pg._running = self._running
             if isinstance(m, Replication_Keepalive):
                 if m.ping:
-                    self.send(Replication_HotStandbyFeedbackMessage(-1)) #why -1? why not! "the spirit of Y_0"
+                    self.send(Replication_HotStandbyFeedbackMessage(1)) #why 1? why not! "the spirit of Y_0"
             pass
             
 
 
+# one way: view it as a series of layered protocols, build managers for each protocol (some of which are backed (via composition, not inheritence) by the others; afterall, we already use TCP this way which uses IP this way); this is awkward because it pushes us towards using threads
+
+# another way: abuse 'yield' so that we can write statemachines (which is what a protocol, especially one as gunky as the Postgres one, is ) as coroutines
+#    t
+
+def client_protocol():
+    "coroutine implementing the entire postgres client protocol"
+    "use next() to receive messages; users can use .send() to send Messages; the coroutine is written such that it only yields at an appropriate point to wait for messages" 
+    # todo: write a wrapper which works somewhat like socketpair(): it returns both the instantiated generator and an fd you can select() on
+    # we sniff the messages as they pass through us and possibly dump into subprotocol coroutines as needed
+    #sock = 
+    #send(Startup11
+    pass
+
+def server_protocol():
+    "..."
+
 def test():
-    print(Replication_Keepalive.parse(b'\x00\x00\x00\x00\x01|9\xc8\x00\x01\xa0\x18\xd7\x86\xd9\x9d\x01')) #testing int64 support
     
     import threading
     import IPython

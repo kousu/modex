@@ -1,5 +1,6 @@
 #brutally forced attempt to get postgres to send the WAL logs;
 # this below gets as far as turning on the correct mode and sending the sub-protocol header line.
+# this is python3!
 
 import socket, struct
 
