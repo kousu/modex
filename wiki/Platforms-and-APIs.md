@@ -20,7 +20,7 @@ HTML5 is extremely powerful. It has a lot of new widgets (under form elements: s
 * [Boilerplate](http://html5boilerplate.com/)
 * [Bootstrap](http://getbootstrap.com/)
 
-## Visualizationw
+## Visualization
 
 * d3js
 * Square's [cubism.js](http://square.github.io/cubism/) for visualizing live time series data
