@@ -3,7 +3,7 @@ Here we list all the APIs and platforms we have considered. It is a serious time
 
 # Frontend
 
-HTML5 is extremely powerful. It has a lot of new widgets (under form elements: sliders, numbers, dates, file uploaders, also <progress> and <meter> which lists). We can probably build most of our widgets direct in HTML.
+HTML5 is extremely powerful. It has a lot of new widgets (under form elements: sliders, numbers, dates, file uploaders, also <progress> and <meter> which lists). We can probably [build](../../scratch/html5/widgets) most of our widgets direct in HTML.
 
 * LessCSS
 * craftyjs?
@@ -22,19 +22,9 @@ HTML5 is extremely powerful. It has a lot of new widgets (under form elements: s
 
 ## Visualization
 
-* d3js
-* [dcjs](https://github.com/dc-js/dc.js) -- d3 married to crossfilter for multidimensional, interactively linked, charts
-* Square's [cubism.js](http://square.github.io/cubism/) for visualizing live time series data
-* [graphite](http://graphite.wikidot.com/)
-* Native HTML5 (e.g. see [our html5 widget demo](../../scratch/html5/widgets))
-* Spreadsheet widgets (more [@](http://plugins.jquery.com/tag/spreadsheet/))
-    * [Handsontable](http://handsontable.com/)
 * [Vispy](http://vispy.org/) (_not a frontend possibility, but targetted at real-time big-data and interactivity, so good to keep in mind_)
-
-### Encapsulated Visualization Libraries
-
 * [morris](http://morrisjs.github.io/morris.js/)
-* d3-based:
+* [d3](http://d3js.org/)-based:
   * [Mike Bostock's Reusable d3 chart spec](http://bost.ocks.org/mike/chart/)
     * and the [official results](https://github.com/d3/d3-plugins), so far 
   * Scrap reusable d3 examples:
@@ -49,7 +39,9 @@ HTML5 is extremely powerful. It has a lot of new widgets (under form elements: s
     * [simple bar chart](http://jsfiddle.net/johnwun/8hSGP/)
   * [NVD3](http://nvd3.org/)
   * [c3](http://c3js.org/)
+  * [dcjs](https://github.com/dc-js/dc.js) -- d3 married to crossfilter for multidimensional, interactively linked, charts
 * Charts (linegraphs, scatterplots):
+  * [graphite](http://graphite.wikidot.com/) -- targetted at large-scale, realtime feeds
   * [dimplejs](http://dimplejs.org/) - _this looks pretty underpowered_
   * [Vega](https://github.com/trifacta/vega)
     * [Vincent](https://github.com/wrobstory/vincent) - _A Python to Vega translator_
@@ -59,13 +51,15 @@ HTML5 is extremely powerful. It has a lot of new widgets (under form elements: s
   * [Chart.JS](http://www.chartjs.org/)
   * [dygraphs](http://dygraphs.com/)
 * Timeseries
+  * Square's [cubism.js](http://square.github.io/cubism/) 
   * [Rickshaw](http://code.shutterstock.com/rickshaw/)
   * [Epoch](http://fastly.github.io/epoch/)
 * Networks:
   * [SigmaJS](http://sigmajs.org/)
 * Heatmaps
   * [heatmap.js](http://www.patrick-wied.at/static/heatmapjs/) 
-
+* Spreadsheet widgets (more [@](http://plugins.jquery.com/tag/spreadsheet/))
+    * [Handsontable](http://handsontable.com/)
 
 ### Maps
 
