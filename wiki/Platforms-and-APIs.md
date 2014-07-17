@@ -3,7 +3,8 @@ Here we list all the APIs and platforms we have considered. It is a serious time
 
 # Frontend
 
-HTML5 is extremely powerful. It has a lot of new widgets (under form elements: sliders, numbers, dates, file uploaders, &lt;progress&gt; and &lt;meter&gt;). We can probably build most of our widgets directly in the DOM.
+
+HTML5 is extremely powerful. It has a lot of new widgets (under form elements: sliders, numbers, dates, file uploaders, also <progress> and <meter> which lists). We can probably [build](../../scratch/html5/widgets) most of our widgets direct in the DOM.
 
 * LessCSS
 * craftyjs?
@@ -22,38 +23,44 @@ HTML5 is extremely powerful. It has a lot of new widgets (under form elements: s
 
 ## Visualization
 
-* d3js
-* Square's [cubism.js](http://square.github.io/cubism/) for visualizing live time series data
-* [graphite](http://graphite.wikidot.com/)
-* Native HTML5 (e.g. see [our html5 widget demo](../../scratch/html5/widgets))
+* [Vispy](http://vispy.org/) (_not a frontend possibility, but targetted at real-time big-data and interactivity, so good to keep in mind_)
+* [d3](http://d3js.org/)-based:
+  * [Mike Bostock's Reusable d3 chart spec](http://bost.ocks.org/mike/chart/)
+    * and the [official results](https://github.com/d3/d3-plugins), so far 
+  * Scrap reusable d3 examples:
+    * http://jsfiddle.net/johnwun/8hSGP/
+    * [textrotate()](http://bl.ocks.org/ezyang/4236639)
+    * [pie-chart](https://github.com/gajus/pie-chart)
+    * [interactive histograms](https://github.com/gajus/interdependent-interactive-histograms)
+    * ["slopegraph"](http://bl.ocks.org/biovisualize/4348024) (actually a very basic network visualization)
+    * [demo of building a reusable component from a nonreusable one](http://bl.ocks.org/milroc/5519642)
+    * [messy errorbar scatterplot](http://bl.ocks.org/chrisbrich/5044999)
+    * ["hello world" in reusable d3](http://bl.ocks.org/cpbotha/5073718)
+    * [simple bar chart](http://jsfiddle.net/johnwun/8hSGP/)
+  * [NVD3](http://nvd3.org/)
+  * [c3](http://c3js.org/)
+  * [dcjs](https://github.com/dc-js/dc.js) -- d3 married to crossfilter for multidimensional, interactively linked, charts
+* Charts (linegraphs, scatterplots):
+  * [graphite](http://graphite.wikidot.com/) -- targetted at large-scale, realtime feeds
+  * [morris](http://morrisjs.github.io/morris.js/)
+  * [dimplejs](http://dimplejs.org/) - _this looks pretty underpowered_
+  * [Vega](https://github.com/trifacta/vega)
+    * [Vincent](https://github.com/wrobstory/vincent) - _A Python to Vega translator_
+  * [Miso](http://misoproject.com/)   - _this one looks super promising_
+  * [DexCharts](https://github.com/PatMartin/DexCharts)
+  * [Flot](http://www.flotcharts.org/)
+  * [Chart.JS](http://www.chartjs.org/)
+  * [dygraphs](http://dygraphs.com/)
+* Timeseries
+  * Square's [cubism.js](http://square.github.io/cubism/) 
+  * [Rickshaw](http://code.shutterstock.com/rickshaw/)
+  * [Epoch](http://fastly.github.io/epoch/)
+* Networks:
+  * [SigmaJS](http://sigmajs.org/)
+* Heatmaps
+  * [heatmap.js](http://www.patrick-wied.at/static/heatmapjs/) 
 * Spreadsheet widgets (more [@](http://plugins.jquery.com/tag/spreadsheet/))
     * [Handsontable](http://handsontable.com/)
-* [Vispy](http://vispy.org/) (_not a frontend possibility, but targetted at real-time big-data and interactivity, so good to keep in mind_)
-
-### Encapsulated Visualization Libraries
-
-* [Mike Bostock's Reusable d3 chart spec](http://bost.ocks.org/mike/chart/)
-  * and the [official results](https://github.com/d3/d3-plugins), so far 
-  * 
-* [dimplejs](http://dimplejs.org/) - _this looks pretty underpowered_
-* [Vega](https://github.com/trifacta/vega)
-  * [Vincent](https://github.com/wrobstory/vincent) - _A Python to Vega translator_
-* [NVD3](http://nvd3.org/)
-* [Miso](http://misoproject.com/)   - _this one looks super promising_
-* [DexCharts](https://github.com/PatMartin/DexCharts)
-* [Flot](http://www.flotcharts.org/)
-* [Chart.JS](http://www.chartjs.org/)
-* Scrap reusable d3 examples:
-  * http://jsfiddle.net/johnwun/8hSGP/
-  * [textrotate()](http://bl.ocks.org/ezyang/4236639)
-  * [pie-chart](https://github.com/gajus/pie-chart)
-  * [interactive histograms](https://github.com/gajus/interdependent-interactive-histograms)
-  * ["slopegraph"](http://bl.ocks.org/biovisualize/4348024) (actually a very basic network visualization)
-  * [demo of building a reusable component from a nonreusable one](http://bl.ocks.org/milroc/5519642)
-  * [messy errorbar scatterplot](http://bl.ocks.org/chrisbrich/5044999)
-  * ["hello world" in reusable d3](http://bl.ocks.org/cpbotha/5073718)
-  * [simple bar chart](http://jsfiddle.net/johnwun/8hSGP/)
-
 
 ### Maps
 
@@ -68,6 +75,7 @@ HTML5 is extremely powerful. It has a lot of new widgets (under form elements: s
 ## Networking
 
 * [WebSockets](http://www.websocket.org/quantum.html)
+  * [Websockify](https://github.com/kanaka/websockify) -- a short WS<->TCP proxy which treats websockets like they were meant to be treated
   * Autobahn
     * Tutorials do not work at this time. Re-evaluating our use of Autobahn.
   * [SockJS-twisted](https://github.com/DesertBus/sockjs-twisted/); see also [SockJS-client](https://github.com/sockjs/sockjs-client) for drop-in websocket support for older browsers
@@ -146,6 +154,15 @@ with zero application-layer code handling the updates
 (this will definitely not work with what we have now, but it is inspired by SQLAlchemy and LINQ)
 It might turn out that there's no sensible way to write query+binding without writing querybinding. At least, not with the current state of javascript. Or something.
 
+
+
+# Web-Based Code Editors
+
+Examples of isolating
+
+* http://repl.it
+* http://ideone.com/
+* http://gcc.godbolt.org/#
 
 # Backend
 
@@ -360,6 +377,18 @@ Some of the Dataset tools are also Citation tools; these are the remainder:
 * http://www.zotero.org/
 * http://www.mendeley.com/
 
+Plus the tried and true:
+
+* wikis (private or public)
+* Dropbox/Google Drive
+* .txt files
+* .bib files
+
+And the more novel:
+
+* http://rapgenius.com/static/education
+* http://a.nnotate.com/
+* http://drawhere.com/
 
 ## Blogs
 * wordpress
