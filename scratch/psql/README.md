@@ -18,8 +18,8 @@ Files
 
 * server.sh / client.sh : short bash scripts which launch a fresh Postgres instance in the local directory
 * websocket.sh : run the websockify proxy, with automatic SSL cert generation.
-* replicant.py : prototype implementation of the replication protocol
-* replicant.js : postgres protocol in Javascript, from what was learned
+* replicant.py : prototype implementation of the replication protocol. This is the main file and it reimplements what we need of http://www.postgresql.org/docs/current/static/protocol-replication.html in Python.
+* replicant.js : postgres protocol in Javascript, from what was learned. This does not exist yet and would be a reimplementation of replication.py. It may or may not end up being needed.
 * ????.js: shim which does datagram-to-stream reconstruction (since WebSockets, despite running over TCP, do not have a stream mode, which postgres (and many other) protocols assume)
 
 Links
