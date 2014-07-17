@@ -34,12 +34,13 @@ from calendar import timegm
 datetime.timegm = timegm #"I can’t for the life of me understand why the function timegm is part of the calendar module."
 del timegm               #http://ruslanspivak.com/2011/07/20/how-to-convert-python-utc-datetime-object-to-unix-timestamp/
 
-def pgtime(t):
+def pgtime(t=None):
     "Make timekeeping more consistent by converting from system time to postgres time"
-    "system time (for us) is whatever type is returned by time.time()"
+    "system time (for us) is whatever type is returned by time.time(), and defaults to the current time."
     " usually, this is standard unix time: a floating point in seconds (1e6 microseconds!) since 1970-01-01"
     "(but if not, the difference *should* be transparent to us, because we use the datetime module)"
     " a postgres time is integer microseconds since 2000-01-01"
+    if t is None: t = time.time()
     
     epoch = datetime.datetime(2000, 1, 1) #the postgres epoch
     now = datetime.datetime.fromtimestamp(t)
@@ -667,7 +668,7 @@ class Replication_Keepalive(Replication_Message):
     def __init__(self, end, clock=None, ping=True):
         self.end = end
         if clock is None:
-            clock = pgtime(time.time())
+            clock = pgtime()
         self.clock = clock
         self.ping = ping
     
@@ -694,7 +695,7 @@ class Replication_HotStandbyFeedbackMessage(Replication_Message):
         "if xmin is 0 it is considered notice that this ping is going to 'turn off' whatever that means"
         self.xmin = xmin
         if clock is None:
-            clock = pgtime(time.time())
+            clock = pgtime()
         self.clock = clock
             
         self.epoch = epoch
