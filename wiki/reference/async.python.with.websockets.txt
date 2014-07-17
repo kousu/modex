@@ -1,0 +1,20 @@
+Scratch notes!
+TODO: sort through these links and make use of them or decide to toss them!
+
+https://github.com/facebook/tornado/blob/727322700cad5e72da4755721c1a7b20797a40ad/maint/test/websocket/server.py
+https://github.com/facebook/tornado/blob/727322700cad5e72da4755721c1a7b20797a40ad/maint/test/websocket/client.py
+https://github.com/facebook/tornado/blob/727322700cad5e72da4755721c1a7b20797a40ad/tornado/gen.py
+http://blog.pythonisito.com/2012/08/building-web-applications-with-gevents.html
+http://gevent.org/
+
+http://blog.gevent.org/tag/wsgi/
+http://www.scribd.com/doc/58917496/WSGI-Gevent-and-Web-Sockets
+
+docs.pylonsproject.org/projects/pyramid/en/latest/narr/introduction.html#what-is-the-pylons-project 
+http://docs.pylonsproject.org/projects/pyramid/en/1.5-branch/narr/firstapp.html
+
+https://reminiscential.wordpress.com/2012/04/07/realtime-notification-delivery-using-rabbitmq-tornado-and-websocket/
+
+
+ffff
+http://morepypy.blogspot.ca/2011/04/tutorial-writing-interpreter-with-pypy.html

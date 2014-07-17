@@ -1,0 +1,7 @@
+*
+!.gitignore
+!client
+!server
+!shutdown
+!import
+!mysql.conf.sh

@@ -4,7 +4,7 @@ useful utilities.
 TODO: put this module somewhere more generic, like com.sig.modex or SIG.modelling
 """
 
-import warnings
+from warnings import warn
 
 __all__ = ["memoize"]
 
@@ -19,7 +19,7 @@ def memoize(f):
     cache = {}
     def f2(*args, **kwargs):
         if kwargs:
-            warnings.warn("memoize() does not support keyword arguments")
+            warn("memoize() does not support keyword arguments")
             return f(*args, **kwargs)
         else:
             # we can cache on args, so long as they are simple args,

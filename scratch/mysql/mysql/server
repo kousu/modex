@@ -1,0 +1,54 @@
+#!/bin/sh
+#
+# start up script for local running copy of mysql (server)
+# this script runs mysqld as your current user with data stored in the same directory this script resides in.
+# And it leaves the db-root account password blank.
+
+HERE=$(dirname $0)
+. $HERE/util.sh #<-- note the chicken-or-egg problem
+HERE=$(abspath $HERE)
+
+
+
+
+
+# MySQL, of course, uses itself to hold metadata about itself, so it cannot
+# run on its own but must be bootstrapped by this other script first
+# TODO: split this to mysql/init and let it be turned off by a flag (or maybe
+#  just doc that you need to call init before you can use the server..)
+
+# Sniff the OS
+if [ `uname` = "Linux" ]; then
+  echo "You're on Linux" #DEBUG
+  
+  # TODO: sniff Ubuntu vs Debian vs Arch vs Gentoo
+  # Better TODO: find a script which does this sniffing for us
+
+  # different places modules might be found
+  # apache install locations are very unstandardized, so we just have to hardcode a list of options
+  # and try to guess what system we're on
+  MYSQL_PREFIX_ARCHLINUX=/usr
+  MYSQL_PREFIX_DEBIAN=/usr
+  MYSQL_PREFIX_UBUNTU=$MYSQL_PREFIX_DEBIAN #TODO: doublecheck
+  
+  MYSQL_PREFIX=$MYSQL_PREFIX_ARCHLINUX
+elif [ `uname` = "Darwin" ]; then
+  echo "You're on OS X" #DEBUG
+  
+  MYSQL_PREFIX=/usr/local/mysql
+else
+  echo "Unknown platform `uname`"
+  #^this is sort of a lost cause, because we can't (easily) run bash or mysqld or make named sockets on Windows anyway...
+  exit -1
+fi
+
+echo $MYSQL_PREFIX
+
+
+# TODO: test before erasing?
+rm -r $HERE/{tmp,data}
+mkdir $HERE/{tmp,data} #&& ?
+$HERE/mysql.conf.sh &&
+mysql_install_db --basedir=$MYSQL_PREFIX --ldata=$HERE/data &&
+# Actually start the server
+mysqld --defaults-file=$HERE/mysql.conf

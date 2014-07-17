@@ -1,0 +1,80 @@
+
+.hidden { display: none } /* use this CSS class to disable elements temporarily */
+
+
+
+html, body {
+  height: 100%;  /* ensure that subelements are able to compute using relative units; why, CSS, why? */
+  width: 100%
+  padding: 0;
+  margin: 0;
+}
+
+#layout {
+  height: 90%;
+  padding: 0;
+  margin: 0;
+}
+
+#layout > div {
+  /* layout boxes bump up */
+  height: 100%;
+  width: 100%
+  display: inline-block; /* causes the divs to bump up against each other instead of inserting newlines */
+}
+
+#view {
+  height: 100%;
+  width: 100%
+}
+
+#view > div {
+  display: inline-block; /* causes the divs to bump up against each other instead of inserting newlines */
+  height: 100%;
+}
+
+#map {
+  width: 70%;
+  height: 100%;  
+}
+
+#graph {
+  border: 1px dashed black; /*debug*/
+
+  width: 25%;
+  height: 100%;
+  
+  
+  top: 5px;
+  right: 5px;
+
+  border-radius: 3px;
+  overflow: hidden; /* makes the radius affect the inner map rendering elements */
+}
+
+#graph > h2 { 
+  text-align: center;
+  vertical-align: center;
+  margin-top: 50%; margin-bottom: 50%;
+  /* display: none; */ /**Only for debugging; disable this when the graph is back*/
+}
+
+#controls  {
+  width: 100%;
+  padding-top: 1%;
+}
+
+#controls #time {
+  width: 80%;
+  display: inline-block;  
+}
+
+#controls #time #time_slider { 
+  width: 100%;
+}
+
+#controls #time > * {
+  /* center */
+  margin-left: auto;
+  margin-right: auto;
+}

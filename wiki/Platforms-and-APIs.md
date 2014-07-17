@@ -3,7 +3,8 @@ Here we list all the APIs and platforms we have considered. It is a serious time
 
 # Frontend
 
-HTML5 is extremely powerful. It has a lot of new widgets (under form elements: sliders, numbers, dates, file uploaders, also <progress> and <meter> which lists). We can probably [build](../../scratch/html5/widgets) most of our widgets direct in HTML.
+
+HTML5 is extremely powerful. It has a lot of new widgets (under form elements: sliders, numbers, dates, file uploaders, also <progress> and <meter> which lists). We can probably [build](../../scratch/html5/widgets) most of our widgets direct in the DOM.
 
 * LessCSS
 * craftyjs?
@@ -93,10 +94,13 @@ HTML5 is extremely powerful. It has a lot of new widgets (under form elements: s
 ## Serialization
 
 * json
+* msgpack - json in binary
+* [bson](http://bsonspec.org/) - a different json in binary; designed and used by MongoDB
 * [https://github.com/edn-format/edn](edn)
-* msgpack (json in
 * http://nytimes.github.io/tamper/ - _achieves superior compression via categorical data_
 * [protobufs](https://developers.google.com/protocol-buffers/)
+
+* http://dataprotocols.org/
 
 ## Javascript Data View/Flow/Binding Libraries  (an obscene number of them)
 
@@ -150,16 +154,6 @@ with zero application-layer code handling the updates
 (this will definitely not work with what we have now, but it is inspired by SQLAlchemy and LINQ)
 It might turn out that there's no sensible way to write query+binding without writing querybinding. At least, not with the current state of javascript. Or something.
 
-(this exists in some form in:
-* CouchDB. It is called [replication filtering](http://couchdb.readthedocs.org/en/latest/replication/protocol.html#filter-replication) ([example](http://guide.couchdb.org/draft/notifications.html#filters)) in `feed=continuous` mode)
-* Breeze. The components are [projection queries](http://www.breezejs.com/documentation/projection-queries) + [change tracking](http://www.breezejs.com/documentation/change-tracking)
-* Don't forget that SQL calls this a [View](https://en.wikipedia.org/wiki/View_%28database%29); there's no way to define a View dynamically, though.
-* A pre-Breeze [example](http://msdn.microsoft.com/en-us/magazine/jj133816.aspx) using MsSQL Server + WCF (C# backend) +{Data,Knockout}JS (HTML5 frontend); it even binds two ways)
-
-Related threads:
-* [dat#112](https://github.com/maxogden/dat/issues/112)
-* [nengo-gui#1](https://github.com/ctn-waterloo/nengo_gui/pull/1)
-
 
 
 # Web-Based Code Editors
@@ -192,14 +186,30 @@ Examples of isolating
 
 * [PIL](http://pillow.readthedocs.org/) for generating and working with rasters
 
-### Video??
+### Video
 
-* ??? ?? ? ? ?
+* [the empty void of uncertainty]
 
 ### Databases
 
+A computer system is the union of data and operations on that data. Many programs work fine only with their programming language's native datastructures. The reasons to use a database system--and so the features one usually has--are:
 
-[An Overview of Paradigms](http://www.slideshare.net/slidarko/an-overview-of-data-management-paradigms-relational-document-and-graph-3880059) by the author of Gremlin.
+1. persistence: _your data doesn't disappear if your program crashes_ 
+   (note that it is possible to do [serialization](#Serialization) without using database software, and for simple cases that may be all you need)
+2. faster reads ("queries" in DB parlance):
+    1. slicing
+    2. aggregation 
+3. consistency: _conflict detection and management_ (the [ACID properties](https://en.wikipedia.org/wiki/ACID), "transactions" and "rollbacks" in DB parlance)
+4. replication: _duplicate your data to multiple places for i. reliability (backups!) ii. availability (every thousand clients can use a different server)_
+5. schemas: _reliably structuring your data_
+   * it is hotly debated if this is a feature or a bug; in the case of map data, a standard system to read, write, and slice mixed tabular and geometric information is a big win
+   * in the case of large amounts of simple data (e.g. almost any social media site) it is unnecessarily restrictive (hence the move towards "NoSQL").
+5. revision tracking.
+
+Not every database has 
+A database also forces you to think about your datastructures ("schema" in DB parlance), and 
+
+There are many [paradigms](http://www.slideshare.net/slidarko/an-overview-of-data-management-paradigms-relational-document-and-graph-3880059). Every one of these can be mapped into the others; the question of which to use is a mixture of the tradeoffs between what has the most expressive API _for your use case_, what is the most efficient in space, and what is most efficient in time, and what is most efficient in administration.
 
 * Tables: most of these are SQL, but some are not
     * Python APIs: [Overview](https://wiki.python.org/moin/DatabaseInterfaces), [SQL](https://wiki.python.org/moin/DbApiModuleComparison) which conform to [PEP 249](http://legacy.python.org/dev/peps/pep-0249/), [ORMs &c](https://wiki.python.org/moin/HigherLevelDatabaseProgramming) of which [SQLAlchemy](http://www.sqlalchemy.org/) is head of the pack.
@@ -222,24 +232,41 @@ Examples of isolating
     * [OpenLayers' Discussion on approaches to giving different results at different zoom levels](https://github.com/openlayers/ol3/pull/1812) (and [related PR](https://github.com/openlayers/ol3/pull/1744)
 * Graph / Network Databses
     * [pggraph](http://pgfoundry.org/projects/pggraph) for postgres
-    * [Neo4j](https://en.wikipedia.org/wiki/Neo4j) ("the most popular graph database")
+    * [Neo4j](http://www.neo4j.org/) ("the most popular graph database")
     * [Gremlin](https://github.com/tinkerpop/gremlin/wiki); the [author](http://www.slideshare.net/slidarko/) has many talks online:
         * A [Gremlin Overview](http://www.slideshare.net/slidarko/the-pathological-gremlin)
         * [Memoirs of a GraphDB Addict](http://www.slideshare.net/slidarko/memoirs-of-a-graph-addict-despair-to-redemption#)
         * Another [Gremlin Talk](http://www.slideshare.net/slidarko/gremlin-a-graphbased-programming-language-3876581)
         * An [arxiv preprint](http://arxiv.org/abs/1004.1001)
         * [Yet Another Gremlin talk](http://www.slideshare.net/slidarko/the-pathology-of-graph-databases)
+    * [Riak](http://basho.com/riak/)
+    * [VertexDB](http://www.dekorte.com/projects/opensource/vertexdb/)
+    * [Filament](http://sourceforge.net/projects/filament/)
+    * [Allegro](http://franz.com/agraph/allegrograph/)
+    * [InfoGrid](http://infogrid.org/trac/)
+    * [HyperGraphDB](http://www.kobrix.com/hgdb.jsp)
+    * [DEX](http://www.dama.upc.edu/technology-transfer/dex) **commercial**; [paper](http://www.dama.upc.edu/technology-transfer/files/p573-martinez.pdf): _Martínez-Bazan, N., Muntés-Mulero, V., Gómez-Villamor, S., Nin, J., Sánchez-Martínez, M., and Larriba-Pey, J.  2007. Dex: high-performance exploration on large graphs for information retrieval. In Proceedings of the Sixteenth ACM Conference on Conference on information and Knowledge Management (Lisbon, Portugal, November 06 - 10, 2007). CIKM '07. ACM, New York, NY, 573-582._
 * OLAP
     * [Cubes](http://cubes.databrewery.org/) which wraps SQL into OLAP _**pay attention** to this one_
 * TimeSeries
-    * Square's [cube](http://square.github.io/cube/)
-* NoSQL (aka Document Databases)
-    * [MongoDB](http://www.mongodb.org/) - _**NB**: commercial use is a 5000$ license_
-    * [CouchDB](http://couchdb.readthedocs.org/)
-* Objects (most of these look like blazingly fast dictionaries, since all object oriented programming can be reduced to dictionaries of dictionaries) -- the Document Databases often end up looking identical to object databases
+    * Square's [cube](http://square.github.io/cube/) 
+* Document Databases aka Object Databases
+    * [MongoDB](http://www.mongodb.org/) - _**NB**: commercial use is a 5000$ license_ **DOES NOT HAVE [ACID PROPERTIES](http://stackoverflow.com/questions/7149890/what-does-mongodb-not-being-acid-compliant-really-mean#7150406)**
+    * [CouchDB](http://couchdb.readthedocs.org/) - **includes versioning**
+* Key Value Stores: blazingly fast dictionaries; a Document Database can end up looking pretty similar.
     * [Redis](http://redis.io/)
-
-
+    * [memcached](http://www.memcached.org/); **does not** provide persistence
+    * [couchbase](http://www.couchbase.com/); memcached **with** persistence; [not the same as CouchDB](http://www.couchbase.com/couchbase-vs-couchdb)
+    * [BigTable](https://en.wikipedia.org/wiki/BigTable) - somewhere between a table and (column, row, time)
+    * [TokyoCabinet](https://launchpad.net/tokyocabinet)
+    * [DBM](https://en.wikipedia.org/wiki/Trivial_Database); came out of Unix; comes in various flavours, most of which are [batteries-included in python](https://docs.python.org/3/library/dbm.html)
+    * [Git is also key-value store](http://confreaks.com/videos/443-rubyconf2010-git-the-stupid-nosql-database) with **versioning**; but its scaling properties are targetted at hand-managed plain text files
+        * [that hasn't stopped](http://howtonode.org/volcano-wheat) people [being creative with it](https://github.com/gollum/gollum) or even [asinine](https://github.com/technoweenie/madrox)
+    * The {Unix, Windows, Mac} File System is a hierarchical key-value store. This really puts it somewhere between a Key-Value Store and a Document Database. With the symlink feature that is standard on *nix (and suitable workarounds for the corner cases) it is also a very functional graph database.
+        * [btrfs](https://btrfs.wiki.kernel.org/index.php/Main_Page) and [zfs](http://www.open-zfs.org/wiki/Main_Page) are filesystems which have revisions built in; they work very similarly to git, internally.
+* misc.
+    * [Cassandra](https://cassandra.apache.org/)
+    
 
 Remote Query Protocols
 
@@ -248,6 +275,30 @@ Remote Query Protocols
 * [SparQL](http://www.w3.org/TR/sparql11-query/) - for querying document databases
     * [Example 2](http://www.ibm.com/developerworks/xml/library/j-sparql/) 
 
+Replication
+
+Ideally, we will have some way of watching the db for deltas, turning the deltas into json, and punting them over to the client.
+
+Even better, we would have some way of selecting a subset of data (what SQL and Couch call a [View](https://en.wikipedia.org/wiki/View_%28database%29) and only syncing that.
+However, this extra feature, supporting arbitrary queries from the front end, means finding or defining a whole query language
+that javascript can use, and that's a project unto itself.
+
+Possible approaches:
+
+* SQLite has hooks ([tips](http://sqlite.1065341.n5.nabble.com/Sqlite-replication-td43241.html)):
+    * [SQLite Update Hooks](http://www.sqlite.org/c3ref/update_hook.html)
+    * [SQLite Virtual Tables](https://www.sqlite.org/vtab.html) could allow us to 'export' SQL to the filesystem; then we could use git or rsync or csync to do replication
+        * [Python binding](http://apidoc.apsw.googlecode.com/hg/vtable.html)
+        * [Perl binding](http://search.cpan.org/~salva/SQLite-VirtualTable-0.06/lib/SQLite/VirtualTable.pm)
+* CouchDB. It is called [replication filtering](http://couchdb.readthedocs.org/en/latest/replication/protocol.html#filter-replication) ([example](http://guide.couchdb.org/draft/notifications.html#filters)) in `feed=continuous` mode)
+* Breeze. The components are [projection queries](http://www.breezejs.com/documentation/projection-queries) + [change tracking](http://www.breezejs.com/documentation/change-tracking)
+    * A pre-Breeze [example](http://msdn.microsoft.com/en-us/magazine/jj133816.aspx) using MsSQL Server + WCF (C# backend) +{Data,Knockout}JS (HTML5 frontend); it even binds two ways, which is beyond what we care for)
+
+Related threads:
+
+* [dat#112](https://github.com/maxogden/dat/issues/112)
+* [nengo-gui#1](https://github.com/ctn-waterloo/nengo_gui/pull/1)
+   
 ## Data Types
 
 * [rfc3339: DateTimes](http://www.ietf.org/rfc/rfc3339.txt)
@@ -312,13 +363,16 @@ Collaboraties (laboratories for collaboration) are our key to reproducible scien
 
 ### Dataset Management
 
-* http://dat-data.com 
+* http://dat-data.com, an alpha-stage project to create a git for data 
 * http://datahub.io
 * (there's at least two other dataset-version-control/archival sites; what are they?)
 * https://exversion.com
 * [FigShare](http://figshare.com/)
+* [Dryad](http://datadryad.org/)
 
 ### Citation Management
+
+Some of the Dataset tools are also Citation tools; these are the remainder:
 
 * http://www.zotero.org/
 * http://www.mendeley.com/

@@ -1,0 +1,11 @@
+#!/bin/sh
+# shutdown the localized mysqld instance.
+
+HERE=$(dirname $0)
+. $HERE/util.sh #<-- note the chicken-or-egg problem
+HERE=$(abspath $HERE)
+
+
+# For once, MySQL did something right: the officially correct shutdown procedure is
+# kill -TERM <http://lists.mysql.com/mysql/28801>
+kill `cat $HERE/mysqld.pid`

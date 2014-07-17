@@ -3,3 +3,5 @@ autobahn>=0.8.6
 autobahntestsuite>=0.5.6
 msgpack-python>=0.4.0
 GDAL>=1.10
+sqlalchemy>=0.9.0
+dataset>=0.5

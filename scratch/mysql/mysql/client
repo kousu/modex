@@ -1,0 +1,10 @@
+#!/bin/sh
+
+# start up script for local running copy of mysql (client)
+# essentially just an alias
+HERE=$(dirname $0)
+. $HERE/util.sh #<-- note the chicken-or-egg problem
+HERE=$(abspath $HERE)
+
+
+mysql --defaults-file=$HERE/mysql.conf $@

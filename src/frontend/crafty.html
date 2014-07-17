@@ -1,0 +1,112 @@
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd">
+<html xmlns="http://www.w3.org/1999/xhtml">
+<head>
+   
+   <!-- libraries -->
+     <!-- TODO: investigate using require.js or some other js dependency manager -->
+     <!-- jquery -->
+     <script type="text/javascript" src="/assets/libs/jquery.js"></script>        
+     <script src="/assets/libs/jquery-ui.js"></script>
+     <link rel="stylesheet" href="/assets/libs/jquery-ui.css">
+
+    <!-- there are  abunch of dependencies for jqueryUI (images and stuff) that also need to be imported, but i don't have time for that at the moment, so keeping the cdn version for Monday's demo -->
+    <!--
+     <script src="/assets/libs/jquery-ui.js"></script>
+     <link rel="stylesheet" href="/assets/libs/jquery-ui-smoothness.css">
+     -->
+  
+     <!-- json -->
+     <script type="text/javascript" src="/assets/libs/json2.js"></script>
+
+     <!-- autobahn -->
+     <script type="text/javascript" src="/assets/libs/autobahn.js"></script>
+  
+     <!-- ol -->
+     <script type="text/javascript" src="/assets/libs/ol.js"></script>
+     <link rel="stylesheet" href="/assets/libs/ol.css" type="text/css">
+     
+     <!-- d3 -->
+     <script type="text/javascript" src="/assets/libs/d3.v3.js" charset="utf-8"></script>
+     <script type="text/javascript" src="/assets/libs/nv.d3.js"></script>
+     <link href="/assets/libs/nv.d3.css" rel="stylesheet" type="text/css">
+  
+     <!-- crafty -->
+     <script type="text/javascript" src="/assets/libs/crafty.js"></script>
+
+   <!-- project code -->
+     <link rel="stylesheet/less" type="text/css" href="css/style.less" />
+   
+     <!-- networking -->
+     <!-- <script type="text/javascript" src="wamp.js"></script> -->
+   
+     <!-- ol3 --> 
+     <!-- <script type="text/javascript" src="map.js"></script>-->
+
+     <!-- crafty -->
+     <!-- warning: crafty sets overflow: hidden unilaterally on the body element,
+          which interferes with any attempts at non-Crafty layout -->
+     <script type="text/javascript" src="controller.js"></script>
+     <script type="text/javascript" src="farm.js"></script>
+     <script type="text/javascript" src="main.js"></script>
+     <script type="text/javascript" src="components/PlayPause.js"></script>
+     <script type="text/javascript" src="components/Timeline.js"></script>
+     <script type="text/javascript" src="scenes/menu.js"></script>
+     <script type="text/javascript" src="scenes/setup.js"></script>
+     <script type="text/javascript" src="scenes/goals.js"></script>
+     <script type="text/javascript" src="scenes/intro.js"></script>
+     <script type="text/javascript" src="scenes/game.js"></script>
+
+     <!-- nvd3 -->
+     <script type="text/javascript" src="graph.js"></script>
+  
+  <!-- start page content -->
+   
+  <title>Model Explorer -- Agriculture Simulation</title>
+
+</head>
+  <div id="view">
+    <div id="map"></div><div id="graph"></div>
+  </div>
+  <div id="dialogue" title="Create an intervention">
+      <select id="intervention_type">
+        <option value="" disabled="disabled">Select an intervention type</option>
+        <option value="tax" selected="selected">Tax</option>
+        <option value="subsidy">Subsidy</option>
+      </select>
+      <span id="action">on</span>
+      <select id="activity">
+        <option value="" disabled="disabled" selected="selected">Select an activity</option>
+        <option value="duramSeed">Conventional durum wheat</option>
+        <option value="duramSeedOrganic">Organic durum wheat </option>
+      </select>
+      <div id="tax_slider"></div>
+      <span>Value of </span>
+      <span id="intervention_value">0</span>
+      <span id="intervention_unit">%</span>
+      <!-- 
+        <div id="year_slider"></div>
+        <span id="year_unit"> Applied at year</span>
+        <span id="year_value">0</span>
+      -->
+
+  </div>
+  <script type="text/javascript">
+    less = {
+      logLevel: 1,
+    }
+  </script>
+  <script type="text/javascript" src="/assets/libs/less.js"></script>
+  <script type="text/javascript">
+  $(document).ready(function(){
+    less.watch();
+
+    // useful for debugging
+    console.oldLog = console.log;
+    console.log = function(value) {
+      console.oldLog(value);
+      window.$log = value;
+    };
+  });
+  </script>
+</body>
+</html>

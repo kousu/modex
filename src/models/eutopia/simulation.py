@@ -1,5 +1,4 @@
 import json
-from StringIO import StringIO
 
 __all__ = ['Scenario', 'Simulation', 'read_interventions']
 
@@ -74,9 +73,7 @@ class Simulation:
             appends those to the current model. 
             """
             
-            # unicode object does not have read method, this gives it one
-            io = StringIO(client_json) 
-            raw = json.load(io)
+            raw = json.loads(client_json)
             
             try:
                 intervention = raw[0]

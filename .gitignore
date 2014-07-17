@@ -3,6 +3,9 @@ lightbulb
 .DS_Store
 *.pyc
 .idea
-TODO.*
+TODO.*.private
 .swp
 mapcache
+
+# Don't store the temporary testing databases
+*.sqlite

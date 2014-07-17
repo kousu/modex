@@ -1,0 +1,38 @@
+#!/bin/sh
+#
+# import a db dump to the local SQL instance
+# A common hosting convention is to make a user to own each database
+# So this script *also* creates that user simultaneously
+# (this is sketchy in general, but useful here)
+#
+# usage: import USER PASSWORD DB.sql.gz 
+#
+# WARNING: Using this script leaks PASSWORD on the command line
+
+# TODO: detect pre-unzipped dumps
+# TODO: error handling
+
+HERE=$(dirname $0)
+. $HERE/util.sh #<-- note the chicken-or-egg problem
+HERE=$(abspath $HERE)
+
+
+USER=$1
+PASSWORD=$2
+DUMP=$3
+
+
+DATABASE=$(basename $DUMP | sed "s/.sql.gz$//") #XXX the '.' isn't matching the correct thing
+echo "Importing $DATABASE"
+
+#echo "Creating $USER" && #DEBUG
+echo "CREATE USER '$USER'@'localhost' identified by '$PASSWORD'; flush privileges" | $HERE/client -u root &&
+
+#echo "Creating $DATABASE" && #DEBUG
+echo "CREATE DATABASE $DATABASE" | $HERE/client -u root &&  #<-- this has to be done as 'root'
+
+#echo "Giving $USER permissions to $DATABASE" && #DEBUG
+echo "grant all on $DATABASE.* to '$USER'@'localhost'" | $HERE/client -u root &&
+
+#echo "Importing $DUMP" && #DEBUG
+gunzip -c $DUMP | $HERE/client -u $USER --password=$PASSWORD $DATABASE #<-- finally, this step can be done by the new DB user

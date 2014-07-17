@@ -1,5 +1,5 @@
 (TODO: collectively decide on a license for our team-written code) 
-
+(the DiD project favours GPL)
 
 Portions from the Twisted project under the following license:
 Copyright (c) 2001-2008

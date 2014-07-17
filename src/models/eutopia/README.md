@@ -33,3 +33,13 @@ You should see a symlink (if you're on OS X or Linux; dunno about Windows)
 The ".real" file is copyrighted and you need to obtain it from a team member.
 Once you have it, you should be able to just put it in this folder.
 See src/README.md for the reasoning behind this design.
+
+TODO
+----
+
+* [ ] BUG: the decisions the agents make depends on the order they get to take turns:
+```
+        for family in self.families: #
+                    family.step()
+```
+   We _should_ be doublebuffering: compute on the old state, write to the new state, then swap buffers at the last step. You have to do this in Conway's Game of Life, for example.

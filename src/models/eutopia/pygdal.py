@@ -143,9 +143,32 @@ class Layer(object):
 
 
 class Feature(object):
-    "a simple wrapper that makes OGR Features objects pythonic"
-    "every row in the table is exposed as a property"
-    "this class is the start of scratch/pygdal"
+    """
+    thin wrapper around ogr.Feature which has a copy-constructor
+    """
+    def __init__(self, ogr_feature):
+        if isinstance(ogr_feature, Feature): #support pygdal to pygdal copy-construction
+            ogr_feature = ogr_feature._source
+        self.__dict__['_source'] = ogr_feature
+    def __getattr__(self, attr):
+        return getattr(self.__dict__['_source'], attr)
+    def __setattr__(self, attr, value):
+        return setattr(self.__dict__['_source'], attr, value)
+
+class _Feature(object):
+    """
+    A wrapper that makes OGR Features objects pythonic
+    Every column in the table is exposed as a property
+    this class is the start of pygdal
+    
+    Special properties:
+        - id, the "feature ID" or FID from the original table
+        - _source, the SWIG wrapper which this class then wraps;
+               if this class is not enough you can probably hack out what you need from that (patches welcome)
+        - [{name}] - access the property {name} from the original geodata table.
+        - .{name} - ditto
+    """
+    
     def __init__(self, ogr_feature):
         if isinstance(ogr_feature, Feature): #support copy-construction
             ogr_feature = ogr_feature._source
@@ -153,6 +176,16 @@ class Feature(object):
         #otherwise, wrap a raw GDAL object:
         assert isinstance(ogr_feature, ogr.Feature), "%s is not a ogr.Feature" % (ogr_feature,)
         self.__dict__['_source'] = ogr_feature #speak to __dict__ directly here because of dirty __getattr__ magic
+        
+        # loop over all the properties and cache them
+        # (but do *not* overwrite properties that already exist)
+        # (motivation: make ipython tab completion work)
+        # TODO: this ties us to state! prove that adding and removing columns keeps this list in sync
+        for i in range(self._source.GetFieldCount()):
+            self[self._source.GetFieldDefnRef(i).GetName()] #triggers a cache; see __getattr__
+            
+    @property
+    def id(self): return self._source.GetFID()
     
     @property
     def geometry(self):
@@ -167,23 +200,29 @@ class Feature(object):
     def __getattr__(self, name):
         # check: local dict, then the fields (we can't access self.fields without accessing the local dict) and only then call up
         # TODO: provide access to .geometry()'s members directly (since, logically, a geofeature is the join of geometry and fields, not the parent fields with child geometry)
-        try:
-            return self.__dict__[name]
-        except KeyError:
+        # keep in mind http://stackoverflow.com/questions/3278077/difference-between-getattr-vs-getattribute-in-python
+        if name not in self.__dict__:
             try:
-                return self._source.GetField(name)
+                self.__dict__[name] = self._source.GetField(name)
             except:
                 raise KeyError(name)
-                #return getattr(self, name) #this causes an infinite loop
-
-            #TODO: use
-            #return object.__getattribute__(self, name) #very python2...  <http://stackoverflow.com/questions/3278077/difference-between-getattr-vs-getattribute-in-python>
+                #return getattr(self, name) #this causes an infinite loop!    
+        return self.__dict__[name]
 
     def __setattr__(self, name, value):
         # uh.. what's the rule here again?
+        # XXX this is buggy; setting properties does not get written back to the database
         try:
-            return self._source.SetField(name, value) #this causes infinite regress because it calls self.fields which triggers getattr
-        except RuntimeError: #ogr gives this for all errors when UseExceptions() is on
+            # TODO: this should create a new property when you say self.countyid = 434
+            # but it should *not* create a new property when you say self.id = 6 or self._source = mynewbackingstore
+            # but it doesn't, it just cra
+            # also we don't want to cause infinite regress
+            # also 
+            # TODO: this doesn't handle keeping the cached values in sync properly!
+            self._source.SetField(name, value) #this causes infinite regress because it calls self.fields which triggers getattr
+            self.__dict__[name] = value #XXX this is a quick patch! it solves my use case but is not a proper fix! 
+        except RuntimeError as e: #ogr gives this for all errors when UseExceptions() is on
+            #print(e) #DEBUG
             return object.__setattr__(self, name, value)
     
     def ExportToJson(self):
