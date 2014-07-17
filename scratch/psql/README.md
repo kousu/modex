@@ -11,6 +11,7 @@ Issues
 ------
 
 * Security: exposing the raw SQL protocol to the web has lots of implicit problems.
+  Better idea: flesh out replicant.py until it can speak to postgres, have it reformat the WAL logs into JSON and ship those, read-only. We can even drop Websockify (though it might simply be easier and more reliable to chain a pipe + nc + websockify together) 
 
 Files
 -----
@@ -24,8 +25,13 @@ Files
 Links
 -----
 
-* [postgres developer's list](http://www.postgresql.org/list/pgsql-hackers/)
-* [postgres protocol](http://www.postgresql.org/docs/current/static/protocol.html)
+* Postgres technical details:
+    * [src](http://git.postgresql.org/gitweb/?p=postgresql.git;a=tree)
+    * [developer's list](http://www.postgresql.org/list/pgsql-hackers/)
+    * [Postgres protocol](http://www.postgresql.org/docs/current/static/protocol.html)
+    * [Replication protocol](http://git.postgresql.org/gitweb/?p=postgresql.git;a=blob;f=src/backend/replication/walsender.c)
+    * [WAL definition](http://git.postgresql.org/gitweb/?p=postgresql.git;a=blob;f=src/include/access/xlog.h) -- in the code, called "XLog" which is short for "Transaction Log"
+    * [WAL implementation](http://git.postgresql.org/gitweb/?p=postgresql.git;a=blob;f=src/backend/access/transam/xlogreader.c)
 
 Scrap notes (TODO: move)
 ------------------------
