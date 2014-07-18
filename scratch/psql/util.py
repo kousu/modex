@@ -4,14 +4,19 @@ postgres protocol utilities
 
 """
 
+from collections import OrderedDict
 
-import struct
+from warnings import warn
 
-# for timestamping
+
+# ----------------------------------------------
+# --- timestamping
+
 import time, datetime
 from calendar import timegm
 datetime.timegm = timegm #"I can’t for the life of me understand why the function timegm is part of the calendar module."
 del timegm               #http://ruslanspivak.com/2011/07/20/how-to-convert-python-utc-datetime-object-to-unix-timestamp/
+
 
 def pgtime(t=None):
     "Make timekeeping more consistent by converting from system time to postgres time"
@@ -29,6 +34,12 @@ def pgtime(t=None):
     return v
     
     
+# ------------------------------------------------------
+# --- pgstruct: enhancements to the normal struct module
+#               as needed by postgres 
+
+import struct
+
 def pgstruct_commands(fmt):
     "scan and parse a postgres struct format string, which is the same as a regular format string except that it cannot have its endianness specified (because postgres uses network (big) endianness) and 's' means nul-terminated non-fixed-size C strings"
     "also, for now, we make the assumption that strings mean ascii strings, though supposedly there's a way to configure this"
@@ -165,3 +176,11 @@ def pg_marshal_dict(D):
     "marshal an ordered dictionary"
     assert type(D) == OrderedDict
     str.join("", ["%s\0%s" % (k,D[k]) for k in D]) #XXX this should be a bytes object...
+
+
+# ----------------------------------------
+# --- misc
+
+def invert_enum(enum_cls):
+    "*in-place* add a field to an enum which maps its values to its keys"
+    enum_cls.__reverse_members__ = OrderedDict([(k.value, k) for k in enum_cls.__members__.values()])
