@@ -23,28 +23,28 @@ CREATE LANGUAGE plpython2u;
 
 --CREATE FUNCTION fifo_init() RETURNS void AS $$
 DO $$
-  print GD
-  print SD
-  global FIFO, FIFO_fd
-  if "FIFO" not in globals():
+  if "FIFO" not in GD:
     import sys, os
-    globals()['sys'] = sys
-    globals()['os'] = os
+    import json
+    GD['sys'] = sys
+    GD['os'] = os
+    GD["json"] = json
     #this is our first time running in this instance of the python interpreter:
     # run initializations
-    FIFO = "/tmp/_changes"
+    GD["FIFO"] = "/tmp/_changes"
     try:      
-      print("hhmm")
-      if os.exists(FIFO):
+      if GD["os"].exists(GD["FIFO"]):
         #TODO: check that, if it exists, it's a FIFO and we have perms on it
         pass
       else:
-        os.mkfifo(FIFO)
+        GD["os"].mkfifo(GD["FIFO"])
     except:
-      print("couldn't make %s. ignoring" % FIFO)
+      print("couldn't make %s. ignoring" % GD["FIFO"])
       pass
-    FIFO_fd = os.open(FIFO, os.O_WRONLY | os.O_NONBLOCK)
-    sys.stdout = os.fdopen(FIFO_fd, "w")
+    GD["FIFO_fd"] = GD["os"].open(GD["FIFO"], GD["os"].O_WRONLY | GD["os"].O_NONBLOCK)
+    GD["FIFO_f"] = GD["os"].fdopen(GD["FIFO_fd"], "w")
+    print "GD is now", GD
+    GD["sys"].stdout = GD["FIFO_f"]
 $$ language plpython2u;
 
 DROP FUNCTION IF EXISTS watch_table();
@@ -53,10 +53,9 @@ DROP FUNCTION IF EXISTS watch_table();
 CREATE FUNCTION watch_table() RETURNS trigger AS $$ 
   # triggers do not have arguments passed
   # instead, pl/python passes the trigger data in global variables
-  
-  #f.write('butst\n');
-  #f.close()
-  import json
+  import sys
+  sys.stdout = GD["FIFO_f"]
+  json = GD["json"]
   print TD["table_name"], #<-- no newline
   if TD["event"] == "INSERT":
     print "+", TD["new"]
@@ -64,7 +63,6 @@ CREATE FUNCTION watch_table() RETURNS trigger AS $$
     print TD["old"], "-->", TD["new"]
   elif TD["event"] == "DELETE":
     print "-", TD["old"]
-  #print json.dumps(TD)
 $$ language plpython2u;
 
 
