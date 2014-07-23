@@ -14,17 +14,48 @@ CREATE VIEW comedies AS select * from films where kind = 'Comedy'; --this from <
 
 -- other crippling bits: there's no way to set state (except, I suppose, through the DB itself)
 
+CREATE LANGUAGE plpython2u;
+
+-- pl/ rules: each session has a correspond; so, every python script within this SQL script is run by the same interpreter (with the same globals, etc)
+--  however, *other* sessions appear to launch *other* interpreters, even though the python code those sessions might end up triggering was set elsewhere.
+-- the upshot of this, for us, is that we cannot rely on global variables or even global file descriptors.
+-- http://www.postgresql.org/docs/9.3/static/plpython-sharing.html claims "Each function gets its own execution environment" but there's not total separation:
+
+--CREATE FUNCTION fifo_init() RETURNS void AS $$
+DO $$
+  print GD
+  print SD
+  global FIFO, FIFO_fd
+  if "FIFO" not in globals():
+    import sys, os
+    globals()['sys'] = sys
+    globals()['os'] = os
+    #this is our first time running in this instance of the python interpreter:
+    # run initializations
+    FIFO = "/tmp/_changes"
+    try:      
+      print("hhmm")
+      if os.exists(FIFO):
+        #TODO: check that, if it exists, it's a FIFO and we have perms on it
+        pass
+      else:
+        os.mkfifo(FIFO)
+    except:
+      print("couldn't make %s. ignoring" % FIFO)
+      pass
+    FIFO_fd = os.open(FIFO, os.O_WRONLY | os.O_NONBLOCK)
+    sys.stdout = os.fdopen(FIFO_fd, "w")
+$$ language plpython2u;
+
 DROP FUNCTION IF EXISTS watch_table();
 --'RETURNS trigger' is postgres speak for "this doesn't actually return a value but it's meant to be used as a trigger callback"
 -- the main reference for this function is http://www.postgresql.org/docs/9.3/static/plpython-trigger.html
 CREATE FUNCTION watch_table() RETURNS trigger AS $$ 
   # triggers do not have arguments passed
   # instead, pl/python passes the trigger data in global variables
-  import sys
   
-  f = open("/tmp/_changes", "w");
-  f.write('butst\n');
-  f.close()
+  #f.write('butst\n');
+  #f.close()
   import json
   print TD["table_name"], #<-- no newline
   if TD["event"] == "INSERT":
