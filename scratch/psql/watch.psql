@@ -1,0 +1,58 @@
+-- watch.psql
+-- This postgres + pl/python2 script demonstrates watching changes to a table
+-- This could be probably done in plpgsql, but I know python better, and it comes with serialization (json, msgpack, pickle) available easily.
+-- these tips are from
+--  http://www.postgresql.org/message-id/1405660725952-5811931.post@n5.nabble.com and
+--  http://www.postgresql.org/message-id/1405703990457-5811982.post@n5.nabble.com
+-- The reason I'm not using "Logical Decoding" <http://www.postgresql.org/docs/devel/static/logicaldecoding-example.html> is because it's still in devel---not even Arch Linux, usually full of bleeding edge code, has this feature yet. Plus it requires fiddling with the .conf file, same as replicant.py does, but in an incompatible way.
+
+
+DROP TABLE IF EXISTS films CASCADE;
+CREATE TABLE films (name text, kind text, rating int);
+CREATE VIEW comedies AS select * from films where kind = 'Comedy'; --this from <http://www.postgresql.org/docs/current/static/sql-createview.html#SQL-CREATEVIEW-UPDATABLE-VIEWS>
+
+
+-- other crippling bits: there's no way to set state (except, I suppose, through the DB itself)
+
+DROP FUNCTION IF EXISTS watch_table();
+--'RETURNS trigger' is postgres speak for "this doesn't actually return a value but it's meant to be used as a trigger callback"
+-- the main reference for this function is http://www.postgresql.org/docs/9.3/static/plpython-trigger.html
+CREATE FUNCTION watch_table() RETURNS trigger AS $$ 
+  # triggers do not have arguments passed
+  # instead, pl/python passes the trigger data in global variables
+  import sys
+  
+  f = open("/tmp/_changes", "w");
+  f.write('butst\n');
+  f.close()
+  import json
+  print TD["table_name"], #<-- no newline
+  if TD["event"] == "INSERT":
+    print "+", TD["new"]
+  elif TD["event"] == "UPDATE":
+    print TD["old"], "-->", TD["new"]
+  elif TD["event"] == "DELETE":
+    print "-", TD["old"]
+  #print json.dumps(TD)
+$$ language plpython2u;
+
+
+CREATE TRIGGER watch_table
+  AFTER INSERT OR UPDATE OR DELETE
+  ON films 
+  FOR EACH ROW
+  EXECUTE PROCEDURE watch_table();
+
+-- this one is crippled because watching views doesn't help much
+-- 1) triggers on a view only trigger if you actually said "UPDATE comedies SET ... WHERE ... ", not if you do "UPDATE films ..."
+-- 2) triggers on a view *must* be "FOR EACH STATEMENT" unless you use "INSTEAD OF" but that would be something very different, then, and make using triggers and views and sql kind of pointless.
+--CREATE TRIGGER watch_table
+--  AFTER INSERT OR UPDATE OR DELETE
+--  ON comedies
+--  FOR EACH STATEMENT
+--  EXECUTE PROCEDURE watch_table();
+
+\COPY films FROM './films.sql'; -- COPY runs on the server, Hence, the client commanding the server to load a file *must give a full path*, because it doesn't know where the server is. Conversely, \COPY runs on the client, which, if the server is remote, might be a large amount of data. See <https://wiki.postgresql.org/wiki/COPY>
+
+INSERT INTO films VALUES ('Grass', 'Documentary', 0);
+INSERT INTO films VALUES ('The Mail Man', 'Documentary', 3);
