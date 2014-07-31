@@ -5,3 +5,21 @@ What does filtered replication usually look like?
 How does the web usually replicate data? Are there any standards in this direction? Or do people just write custom URL handlers which do a hard-coded query and return the results in some custom.
 Do you think dat is moving in the right direction, or poorly replicating work that already exists?
 What are the lock-ins and tradeoffs between Document, SQL, Cassandra, and Filesystem databases?
+
+
+
+
+
+New idea:
+ - write my own views
+ - i can't rely on postgres to do dataflow programming for me
+   but what I can do is invent my own layer which never tells the backend DB its doing slicing at all (except maybe to do the initial state dump)
+   
+ - when a view is created it slices the DB appropriately and streams events (XXX concurrency?? do events that come in during the dumping get lost?)
+   and then opens a listener to the DB ( .. how do we do this in general? FIFOs cannot (correctly) have multiple readers; we need to use like.. tee or something... except does that mean we need to restart tee? can I tee to multiple 
+    ..this is where a system bus like dbus or autobahn comes in handy...
+     ...but i sort of love fifos now and I would hack this together in them if possible
+      (..what's the rule? write() -> NXIO if no reader has open(), but write() -> buffer if a reader has open() and simply hasn't called read() ((in nonblocking mode))
+ - for simplicitly, our views are only allowed as slices of single tables ((we might be able to extend))
+  
+  

@@ -14,63 +14,84 @@ CREATE VIEW comedies AS select * from films where kind = 'Comedy'; --this from <
 
 -- other crippling bits: there's no way to set state (except, I suppose, through the DB itself)
 
-CREATE LANGUAGE plpython2u;
+CREATE LANGUAGE plpython2u; --will fail if python has already been loaded, but the script will continue
 
 -- pl/ rules: each session has a correspond; so, every python script within this SQL script is run by the same interpreter (with the same globals, etc)
 --  however, *other* sessions appear to launch *other* interpreters, even though the python code those sessions might end up triggering was set elsewhere.
 -- the upshot of this, for us, is that we cannot rely on global variables or even global file descriptors.
 -- http://www.postgresql.org/docs/9.3/static/plpython-sharing.html claims "Each function gets its own execution environment" but there's not total separation:
 
---CREATE FUNCTION fifo_init() RETURNS void AS $$
-DO $$
-  if "FIFO" not in GD:
-    import sys, os
-    import json
-    GD['sys'] = sys
-    GD['os'] = os
-    GD["json"] = json
-    #this is our first time running in this instance of the python interpreter:
-    # run initializations
-    GD["FIFO"] = "/tmp/_changes"
-    try:      
-      if GD["os"].exists(GD["FIFO"]):
-        #TODO: check that, if it exists, it's a FIFO and we have perms on it
-        pass
-      else:
-        GD["os"].mkfifo(GD["FIFO"])
-    except:
-      print("couldn't make %s. ignoring" % GD["FIFO"])
-      pass
-    GD["FIFO_fd"] = GD["os"].open(GD["FIFO"], GD["os"].O_WRONLY | GD["os"].O_NONBLOCK)
-    GD["FIFO_f"] = GD["os"].fdopen(GD["FIFO_fd"], "w")
-    print "GD is now", GD
-    GD["sys"].stdout = GD["FIFO_f"]
-$$ language plpython2u;
 
 DROP FUNCTION IF EXISTS watch_table();
 --'RETURNS trigger' is postgres speak for "this doesn't actually return a value but it's meant to be used as a trigger callback"
 -- the main reference for this function is http://www.postgresql.org/docs/9.3/static/plpython-trigger.html
 CREATE FUNCTION watch_table() RETURNS trigger AS $$ 
   # triggers do not have arguments passed
-  # instead, pl/python passes the trigger data in global variables
-  import sys
-  sys.stdout = GD["FIFO_f"]
-  json = GD["json"]
-  print TD["table_name"], #<-- no newline
+  # instead, pl/python passes the trigger data *and* any arguments given when you define the trigger in sub-members of the global variable TD
+  
+  tablename = TD["args"][0]
+  FIFO = "_changes_%s" % (tablename,)
+  import os
+  FIFO = os.path.abspath(FIFO)
+  if "FIFO" not in SD:
+    #this is our first time running in this instance of the python interpreter:
+    # run initializations
+    
+    #PL/Python is really meant for small one-off tasks, mostly. Most data should probably just be stuffed straight into the database.
+    # however, things like file descriptors don't work so well like that
+    # for these things, we need to use the facilities PL/python provides: http://www.postgresql.org/docs/9.3/static/plpython-sharing.html
+    #  summary is: SD stands for "static data" and behaves like static locals in C (they must have some kind of trap table kicking around that switches in values of SD when the appropriate function is called).
+    #              GD stands for "global data" and is the same everywhere
+    #        both begin as empty dictionaries
+    #   note also that it seems that one python interpreter is invoked ~per client connection~; not per-statement (which would be too fine) nor per
+    import sys, os
+    
+    if os.path.exists(FIFO):
+      #TODO: check that, if it exists, it's a FIFO and we have perms on it
+      print("...it exists??", FIFO)
+      print
+      print(os.path.exists(FIFO))
+      pass      
+    else:
+      print("attempting to construct fifo", FIFO)
+      try:
+        os.mkfifo(FIFO)
+      except Exception as e:
+        import traceback
+        traceback.print_exc()
+        print("couldn't make %s. ignoring" % FIFO)
+        pass
+    print('-'*30)
+    # XXX problem: a nonblocking pipe cannot be opened until there is a reader to read it; the reader may go away after a moment and everything will be peachy, but startup is hard
+    # ..hm.
+    
+    fd = os.open(FIFO, os.O_WRONLY | os.O_NONBLOCK) #O_NONBLOCK is key; otherwise, updates will *hang* the postgres process until someone open()s the FIFO
+    FIFO = os.fdopen(fd, "w", 0) #OVERWRITES; buffering=1 means line buffered, and this is important since the default is to buffer at 4K which is too slow for our real-time purpose
+    SD["FIFO"] = FIFO
+    print "SD is now", SD
+    
+
+  import json
+  
+  FIFO = SD["FIFO"] #retrieve the FIFO from the static data, if this is our second (or even first) time around
+
+  # ... when there's no consumers, shouldn't the prints get EPIPE?
+  #print TD["table_name"], #<-- no newline
+  print "Got triggered:", TD 
   if TD["event"] == "INSERT":
-    print "+", TD["new"]
+    print >>FIFO, "+", TD["new"]
   elif TD["event"] == "UPDATE":
-    print TD["old"], "-->", TD["new"]
+    print >>FIFO, TD["old"], "-->", TD["new"]
   elif TD["event"] == "DELETE":
-    print "-", TD["old"]
+    print >>FIFO, "-", TD["old"]
 $$ language plpython2u;
 
 
-CREATE TRIGGER watch_table
+CREATE TRIGGER watch_table___
   AFTER INSERT OR UPDATE OR DELETE
   ON films 
   FOR EACH ROW
-  EXECUTE PROCEDURE watch_table();
+  EXECUTE PROCEDURE watch_table ('films') ;
 
 -- this one is crippled because watching views doesn't help much
 -- 1) triggers on a view only trigger if you actually said "UPDATE comedies SET ... WHERE ... ", not if you do "UPDATE films ..."
@@ -85,3 +106,30 @@ CREATE TRIGGER watch_table
 
 INSERT INTO films VALUES ('Grass', 'Documentary', 0);
 INSERT INTO films VALUES ('The Mail Man', 'Documentary', 3);
+INSERT INTO films VALUES ('Superfly', 'Comedy', 5);
+
+
+DROP MATERIALIZED VIEW IF EXISTS comedies_m;
+CREATE MATERIALIZED VIEW comedies_m AS
+  SELECT * FROM films WHERE kind = 'Comedy'
+  WITH DATA;
+--REFRESH MATERIALIZED VIEW comedies_m;
+
+SELECT * FROM films;
+SELECT * FROM comedies;
+SELECT * FROM comedies_m;
+
+-- this is illegal; you can attach triggers only to tables and to views (and views have extra restrictions)
+-- 
+--CREATE TRIGGER watch_table_com
+--  AFTER INSERT OR UPDATE OR DELETE
+--  ON comedies_m
+--  FOR EACH STATEMENT
+--  EXECUTE PROCEDURE watch_table('comedies');
+
+CREATE TRIGGER watch_table_view
+  AFTER INSERT OR UPDATE OR DELETE
+  ON comedies
+  FOR EACH STATEMENT
+  EXECUTE PROCEDURE watch_table('comedies');
+

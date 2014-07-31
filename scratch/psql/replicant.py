@@ -109,7 +109,7 @@ class PgClient:
         
     
     def process(self):
-        "; this function mostly exists to be run on a background thread"
+        "this function is for running on a background thread"
         
         self.send(StartupMessage(user, database, **options))
         # dealing with this protocol is complicated because it's not a simple request-response protocol. A single request can result in multiple responses, which sometimes come in a particular order and sometimes do not. We're facing a state machine, and that makes it difficult to write cleanly (i.e. functionally).
