@@ -21,26 +21,62 @@ class Update(ChangeEvent):
         self.old = old
         self.new = new
 
+
+class ITableChanges(object):
+    def next(self):
+        raise NotImplementedError("This is an interface definition only. Subclass and override.")
+
+
+import json
+class PipeChanges(ITableChanges):
+    "parses change events as serialized by watch.psql"
+    """
+     the serialization format is:
+      1 byte giving the type of event (+, - for delete or > for change)
+    """
+    def __init__(self, stream):
+        "stream should be an open file object in +r mode"
+        self._source = stream
+    def next(self):
+        
+        evt = self._source.readline() #blocks here; we could use select() but since we only wait on one 
+        type, row = evt[0], evt[1:]
+        row = json.loads(row)
+        if type == "+":
+            return Insert(row)
+        elif type == "-":
+            return Delete(row)
+        elif type == ">":
+            row = json.loads
+        else:
+            warn("Malformed change event: `%s`" % evt)
+
 class View(object):
     """
     A View is a slice of a database. For example, "all farms or farmers who existed before 1944".
-    This implementation is special because it keeps consumers up to date in real time with the state of the view.
-     given a source of row-level change events (e.g. as prototyped in watch.psql).
+    This implementation is special because it is dynamic. It takes a stream of changes,
+    filters them, and then provides a smaller stream of changes which consumers
+     up to date in real time with the state of the view.
+    In other words, this implements filtered replication ([like CouchDB](http://docs.couchdb.org/en/latest/replication/intro.html#controlling-which-documents-to-replicate)),
+    but for SQL.
+    Standard views in SQL regenerate every time they are queried, and similarly Postgres's MATERIALIZED VIEWS (basically a cached view) can only be refreshed once they are stale with a full rescan.
+     All it needs is some water and a source of row-level change events
+     (e.g. as prototyped in watch.psql).
      
-    This implements filtered replication ([like CouchDB](http://docs.couchdb.org/en/latest/replication/intro.html#controlling-which-documents-to-replicate)),
-    for SQL. Standard views in SQL regenerate every time they are queried, and similarly Postgres's MATERIALIZED VIEWS (basically a cached view) can only be refreshed once they are stale with a full rescan.
-    Ideally, this feature would be fast, in C, inside of Postgres, triggering on updates to parents of MATERIALIZED VIEWS, and would properly handle the full range of SQL.
+
     
     LIMITING ASSUMPTIONS:
     * the source of change events feeds full rows
     * the only sorts of changes are inserts, updates, deletes
     * the schema never changes
+    * ..but the schema is also never explicitly stated (and the end target is d3-style array-of-rows JSON)
     * you can only slice tables, not databases, with this (ie there are no JOINs or other fancy operators)
     
     TODO:
     * Optimizations
       * [ ] If that table has a primary key, deletes can be compressed to just send that
       * [ ] Updates can be compressed be removing the common terms
+      * Ideally, this feature would be fast, in C, inside of Postgres, triggering on updates to parents of MATERIALIZED VIEWS, and would properly handle the full range of SQL (JOINs, SET a = a + 1, etc).
     """
     
     def __init__(self, parent, columns=None, where=lambda *args: True):
