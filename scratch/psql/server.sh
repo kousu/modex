@@ -1,4 +1,4 @@
-#!/bin/sh
+#!/bin/bash
 
 # before running this, do
 # initdb ./data/
