@@ -268,6 +268,9 @@ There are many [paradigms](http://www.slideshare.net/slidarko/an-overview-of-dat
     * [Cassandra](https://cassandra.apache.org/)
     
 
+Tools
+* [Jailer](http://jailer.sourceforge.net/), for exporting slices of SQL databases
+
 Remote Query Protocols
 
 * [OData](http://www.odata.org/) - a protocol for exposing (SQL?) RESTfully; seems overengineered.
