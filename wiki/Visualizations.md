@@ -3,6 +3,8 @@
 
 For this to be any use, this tool desperately must limit the cognitive burden on the user. That means easy-to-learn, attractive maps and plots with details-on-demand, and probably information reduction.
 
+* [Visual.ly's Lesson Resource Center](http://visual.ly/learn)
+
 ### Zooming
 
 We've been throwing around an idea about adaptive-zoom a lot. In short, we want different scales to be rendered qualitatively differently.
