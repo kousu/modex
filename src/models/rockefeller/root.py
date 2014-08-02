@@ -50,7 +50,8 @@ class Employee:
         return 1
     
     def income(self):
-        return float("nan")
+        if self.job is not None: return self.job.pay()
+        else: return 0
         #raise NotImplementedError("TODO")
     
     
@@ -66,9 +67,6 @@ class Employee:
     
     def seeking(self):
         " --> bool"
-        if self.seekingness() == 1: return True
-        else: return False
-        
         return self.seekingness() >= Employee.SEEKING_THRESHOLD
         
     def step(self):
@@ -81,7 +79,9 @@ class Employee:
         if self.seeking():
             jobs = flatten([E.jobs for E in world.employers])
             open_jobs = [j for j in jobs if not j.employee]
+            print(jobs)
             for j in open_jobs:
+                world.log("applications", {"job": j, "seeker": self})
                 j.apply(self)
 
     @property
@@ -113,7 +113,7 @@ class Job:
     def employ(self, employee):
         assert isinstance(employee, Employee)
         
-        print("Employing %s in %s")
+        print("Employing %s in %s" % (employee, self))
         self.employee, employee.job = employee, self
         
         self.applicants = [] #toss the old applicants; WARNING: we need to guarantee that this line happens *every timestep* (or every hiring cycle at least)
@@ -162,7 +162,7 @@ class Employer:
     def evaluate_seeker(self, job, employee):
         "return a rating of employee for job"
         " --> [0,1]"
-        return employee.quality
+        return employee.skill
     
     def step(self):
         "the logic an employer goes through"
@@ -170,11 +170,11 @@ class Employer:
         #TODO: work out concurrency
         
         t = world.time() #blocks until
-        world.log("employer", {"employer": id(self), "profits": self.profit()})
+        world.log("employer", {"employer": self.name, "profits": self.profit()})
                                  # WARNING: ^ this is not universally unique
         # TODO: create jobs
         
-        # hire and fire
+        # hire
         for j in self.jobs:
             applicants = [e for e in j.applicants if e.job is None] #applicants might get a job in between applying and the end of the timestep, so we need to check for that
             if not applicants: continue #if the above filtered out everyone, skip hiring for this job
@@ -183,7 +183,8 @@ class Employer:
         
         
         # fire
-        # for
+        # for ... ??
+        
 
     def __str__(self):
         return "<Employer: %s>" % (self.name,)
@@ -205,7 +206,7 @@ class World:
     def time(self):
         return self._time
         
-    def log(*args):
+    def log(self, *args):
         print("LOG", args)
 
 world = World() #singleton (AWKWARD)
@@ -233,6 +234,9 @@ def main():
     
     
 def test():
+
+    # Painfully define, by hand, all the simulation objects
+    
     E1 = Employer("BigCoCorp")
     E2 = Employer("Organic Farm Fresh1")
     world.employers.append(E1)
@@ -244,6 +248,19 @@ def test():
     world.employees.append(e1)
     world.employees.append(e2)
     world.employees.append(e3)
+    
+    
+    j1 = Job(E1, "Landscaping", .5, 10000)
+    j2 = Job(E1, "Designer", .8, 10000)
+    j3 = Job(E1, "Burgers", .01, 10000)
+    j4 = Job(E1, "Cashier", .10, 10000)
+    
+    E1.jobs.append(j1)
+    E1.jobs.append(j2)
+    E2.jobs.append(j3)
+    E2.jobs.append(j4)
+    
+    # run the model
     main()
     
     
