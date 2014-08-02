@@ -57,7 +57,8 @@ http://dimplejs.org/examples_viewer.html?id=bars_matrix
 ## High dimension tabular
 
 * Radar charts (like in DDR)
-* Coxcombs Charts (aka Polar Area Charts) -- very similar to radar charts, in that the vertical (and therefore linear) distance of a slice of a circle is used to display an element of a data point; the same idea has been used by sailors and meterologists for 700 years in "Wind Rose Charts". Has the advantage that, if the slices are not enough categorization, categories can be stacked outward in each slice 
+* Coxcombs Charts (aka Polar Area Charts) -- very similar to radar charts, in that the vertical (and therefore linear) distance of a slice of a circle is used to display an element of a data point; the same idea has been used by sailors and meterologists for 700 years in "Wind Rose Charts". Has the advantage that, if the slices are not enough categorization, categories can be stacked outward in each slice
+  * ^ [a convincing destruction of the use of radial charts](http://blog.visual.ly/cartesian-vs-radial-charts/) 
 * Parallel coordinate plots
 * [NavGraph](http://navgraph.com/) (local!)
 * [Scagnostics](http://cran.r-project.org/web/packages/scagnostics/) - _more similar to model checking, but based on visualization ideas_
