@@ -1,8 +1,8 @@
 
 
-from threading import *
-from mutex import *
-from queue import *
+#from threading import *
+#from mutex import *
+#from queue import *
 
 import itertools
 
@@ -71,20 +71,25 @@ class Employee:
         
         return self.seekingness() >= Employee.SEEKING_THRESHOLD
         
-    def main(self):
-        while True:
-            world.log("employee", {"income": self.income()})
-            
-            # adjust skill points; the job's quality is used as a proportion increase
-            if self.job:
-                self.skill *= (1 + self.job.quality)
-            
-            if self.seeking():
-                jobs = [world.
-                open_jobs = [j for j in jobs if not j.employee]
-                for j in open_jobs:
-                    j.apply(self)
-            
+    def step(self):
+        world.log("employee", {"income": self.income()})
+        
+        # adjust skill points; the job's quality is used as a proportion increase
+        if self.job:
+            self.skill *= (1 + self.job.quality)
+        
+        if self.seeking():
+            jobs = flatten([E.jobs for E in world.employers])
+            open_jobs = [j for j in jobs if not j.employee]
+            for j in open_jobs:
+                j.apply(self)
+
+    @property
+    def name(self):
+        return str(id(self)) #TODO: use a name generator to make the model more friendly
+    
+    def __str__(self):
+        return "<Employee: %s>" % (self.name,)
 
 class Job:
     """
@@ -107,6 +112,8 @@ class Job:
     
     def employ(self, employee):
         assert isinstance(employee, Employee)
+        
+        print("Employing %s in %s")
         self.employee, employee.job = employee, self
         
         self.applicants = [] #toss the old applicants; WARNING: we need to guarantee that this line happens *every timestep* (or every hiring cycle at least)
@@ -128,6 +135,9 @@ class Job:
         if self.employee is None: return 0
         else:
             return self.paybase * (1 + self.employee.skill)
+            
+    def __str__(self):
+        return "<Job: %s>" % (self.name,)
 
 
 class Employer:
@@ -145,36 +155,60 @@ class Employer:
     def profit(self):
         "computes the company's current profit, as a function of employees and such"
         "subclass and override to experiment with different models"
-        return self.
+        return -1 #TODO
         
     
     @rule
     def evaluate_seeker(self, job, employee):
         "return a rating of employee for job"
         " --> [0,1]"
+        return employee.quality
     
-    
-    def main(self):
+    def step(self):
         "the logic an employer goes through"
         "run this on a thread"
         #TODO: work out concurrency
-        while True:
-            t = world.time() #blocks until
-            world.log("employer", {"employer": id(self), "profits": self.profit()})
-                                     # WARNING: ^ this is not universally unique
-            # TODO: create jobs
-            
-            # hire and fire
-            for j in self.jobs
-            
-            # fire
-            for
+        
+        t = world.time() #blocks until
+        world.log("employer", {"employer": id(self), "profits": self.profit()})
+                                 # WARNING: ^ this is not universally unique
+        # TODO: create jobs
+        
+        # hire and fire
+        for j in self.jobs:
+            applicants = [e for e in j.applicants if e.job is None] #applicants might get a job in between applying and the end of the timestep, so we need to check for that
+            if not applicants: continue #if the above filtered out everyone, skip hiring for this job
+            applicants.sort(key=lambda e: self.evaluate_seeker(j, e))
+            j.employ(applicants[-1]) #choose the highest (#XXX corner case seekers with the same evaluation should be decided on..randomly?)
+        
+        
+        # fire
+        # for
+
+    def __str__(self):
+        return "<Employer: %s>" % (self.name,)
 
 class World:
     def __init__(self):
-        timestep = Condition() #signalled when the timestep is updated. timestep is updated when all threads signal
+        #timestep = Condition() #signalled when the timestep is updated. timestep is updated when all threads signal
+        self.employers = []
+        self.employees = []
+        self._time = 0
+        
+    def step(self):
+        for e in self.employees:
+            e.step()
+        for E in self.employers:
+            E.step()
+        self._time += 1
+            
+    def time(self):
+        return self._time
+        
+    def log(*args):
+        print("LOG", args)
 
-
+world = World() #singleton (AWKWARD)
 
 #------------------
 
@@ -184,12 +218,34 @@ class World:
 #  Mixins are also good for solving this!
 
 # some specific jobs
-class Landscaping(Job):
-    def __init__(self, 
+#class Landscaping(Job):
+#    def __init__(self):
+#        Job.__init__(self, 
 
 
 class Banker(Job):
-    
+    pass
+
 
 def main():
-    while
+    while True:
+        world.step()
+    
+    
+def test():
+    E1 = Employer("BigCoCorp")
+    E2 = Employer("Organic Farm Fresh1")
+    world.employers.append(E1)
+    world.employers.append(E2)
+    
+    e1 = Employee(0.1)
+    e2 = Employee(0.3)
+    e3 = Employee(0.8)
+    world.employees.append(e1)
+    world.employees.append(e2)
+    world.employees.append(e3)
+    main()
+    
+    
+if __name__ == '__main__':
+    test()
