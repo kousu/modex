@@ -78,6 +78,7 @@ http://www.wired.com/business/2014/01/quants-dont-know-everything/
 
 These are sites which combine at least some of data archiving, visualization, and/or analysis:
 
+* [Plot.ly](https://plot.ly/r/) - from the R community
 * [Bombe](http://www.getbombe.com/)
 * [Aniconist](https://www.aniconist.com/wiki/index.php/AniconistWiki:About)
 * OCUL's [ODESI](http://odesi.ca/) (behind a paywall)

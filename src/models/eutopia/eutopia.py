@@ -235,9 +235,11 @@ class Eutopia:
 
     def __iter__(self):
         "convenience method"
-        while True:
-            next(self)
-            yield self.get_activity_count() #hardcode model output, for now
+        def g():
+            while True:
+                next(self)
+                yield self.get_activity_count() #hardcode model output, for now
+        return g()
 
     def get_activity_count(self, farms = None):
         if farms is None: farms = self.farms
