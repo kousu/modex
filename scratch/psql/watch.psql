@@ -79,11 +79,13 @@ CREATE FUNCTION watch_table() RETURNS trigger AS $$
   #print TD["table_name"], #<-- no newline
   print "Got triggered:", TD, "locals=",locals(),"globals=",globals()
   if TD["event"] == "INSERT":
-    print >>FIFO, "+", TD["new"]
+    payload = {"change": "+", "new": TD["new"]}
   elif TD["event"] == "UPDATE":
-    print >>FIFO, TD["old"], "-->", TD["new"]
+    payload = {"change": "->", "old": TD["old"], "new": TD["new"]}
   elif TD["event"] == "DELETE":
-    print >>FIFO, "-", TD["old"]
+    payload = {"change": "-", "old": TD["old"]}
+  payload = json.dumps(payload)
+  print >>FIFO, payload
 $$ language plpython2u;
 
 
