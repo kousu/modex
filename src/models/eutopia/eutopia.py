@@ -394,9 +394,11 @@ class Eutopia:
 
     def __iter__(self):
         "convenience method"
-        while True:
-            next(self)
-            yield self.get_activity_count() #hardcode model output, for now #XXX this is senseless now that we have a database in place
+        def g():
+            while True:
+                next(self)
+                yield self.get_activity_count() #hardcode model output, for now
+        return g()
 
     def get_activity_count(self, farms = None):
         "return a dictionary containing the current value of each economic activitiy"

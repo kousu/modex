@@ -3,6 +3,8 @@
 
 For this to be any use, this tool desperately must limit the cognitive burden on the user. That means easy-to-learn, attractive maps and plots with details-on-demand, and probably information reduction.
 
+* [Visual.ly's Lesson Resource Center](http://visual.ly/learn)
+
 ### Zooming
 
 We've been throwing around an idea about adaptive-zoom a lot. In short, we want different scales to be rendered qualitatively differently.
@@ -57,6 +59,9 @@ http://dimplejs.org/examples_viewer.html?id=bars_matrix
 ## High dimension tabular
 
 * Radar charts (like in DDR)
+* Coxcombs Charts (aka Polar Area Charts) -- very similar to radar charts, in that the vertical (and therefore linear) distance of a slice of a circle is used to display an element of a data point; the same idea has been used by sailors and meterologists for 700 years in "Wind Rose Charts". Has the advantage that, if the slices are not enough categorization, categories can be stacked outward in each slice;
+  * [d3 implementation](http://kreese.net/blog/2012/08/26/d3-js-creating-a-polar-area-diagram-radial-bar-chart/) and [followup](http://kreese.net/blog/2013/06/26/d3-js-smooth-transitioning-of-polar-area-diagram/) 
+  * ^ [a convincing destruction of the use of radial charts](http://blog.visual.ly/cartesian-vs-radial-charts/) 
 * Parallel coordinate plots
 * [NavGraph](http://navgraph.com/) (local!)
 * [Scagnostics](http://cran.r-project.org/web/packages/scagnostics/) - _more similar to model checking, but based on visualization ideas_
