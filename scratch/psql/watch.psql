@@ -29,8 +29,8 @@ CREATE FUNCTION watch_table() RETURNS trigger AS $$
   # triggers do not have arguments passed
   # instead, pl/python passes the trigger data *and* any arguments given when you define the trigger in sub-members of the global variable TD
   
-  tablename = TD["args"][0]
-  FIFO = "_changes_%s" % (tablename,)
+  table_name = TD["table_name"]
+  FIFO = "_changes_%s" % (table_name,)
   import os
   FIFO = os.path.abspath(FIFO)
   if "FIFO" not in SD:
@@ -77,7 +77,7 @@ CREATE FUNCTION watch_table() RETURNS trigger AS $$
 
   # ... when there's no consumers, shouldn't the prints get EPIPE?
   #print TD["table_name"], #<-- no newline
-  print "Got triggered:", TD 
+  print "Got triggered:", TD, "locals=",locals(),"globals=",globals()
   if TD["event"] == "INSERT":
     print >>FIFO, "+", TD["new"]
   elif TD["event"] == "UPDATE":
@@ -87,16 +87,18 @@ CREATE FUNCTION watch_table() RETURNS trigger AS $$
 $$ language plpython2u;
 
 
-CREATE TRIGGER watch_table___
+-- is there a way to list all defined triggers? probably by querying the right internal pg_* table..
+
+CREATE TRIGGER watch_table_films
   AFTER INSERT OR UPDATE OR DELETE
-  ON films 
+  ON films
   FOR EACH ROW
-  EXECUTE PROCEDURE watch_table ('films') ;
+  EXECUTE PROCEDURE watch_table();
 
 -- this one is crippled because watching views doesn't help much
 -- 1) triggers on a view only trigger if you actually said "UPDATE comedies SET ... WHERE ... ", not if you do "UPDATE films ..."
 -- 2) triggers on a view *must* be "FOR EACH STATEMENT" unless you use "INSTEAD OF" but that would be something very different, then, and make using triggers and views and sql kind of pointless.
---CREATE TRIGGER watch_table
+--CREATE TRIGGER watch_table_comedies
 --  AFTER INSERT OR UPDATE OR DELETE
 --  ON comedies
 --  FOR EACH STATEMENT
@@ -122,11 +124,11 @@ SELECT * FROM comedies_m;
 
 -- this is illegal; you can attach triggers only to tables and to views (and views have extra restrictions)
 -- 
---CREATE TRIGGER watch_table_com
+--CREATE TRIGGER watch_comedies
 --  AFTER INSERT OR UPDATE OR DELETE
 --  ON comedies_m
 --  FOR EACH STATEMENT
---  EXECUTE PROCEDURE watch_table('comedies');
+--  EXECUTE PROCEDURE watch_table();
 
 CREATE TRIGGER watch_table_view
   AFTER INSERT OR UPDATE OR DELETE
