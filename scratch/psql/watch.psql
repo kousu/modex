@@ -77,13 +77,16 @@ CREATE FUNCTION watch_table() RETURNS trigger AS $$
 
   # ... when there's no consumers, shouldn't the prints get EPIPE?
   #print TD["table_name"], #<-- no newline
-  print "Got triggered:", TD, "locals=",locals(),"globals=",globals()
+  print "Got triggered:", TD #, "locals=",locals(),"globals=",globals()
+  # the output format here is:
+  # a json object with a single "new" for an insert, a single "old" for a deletion, and both an "old" and a "new" for; beware that this makes the type of change *implicit*; it has the added bonus that it is reallllly simple to consume, since consumers can just look for an "old" tag, act on it, then for a "new" tag and act on that (but have the option of being more clever)
+  # TODO: define some kind of remote primary key semantics and, for tables that have SQL primary keys, compress 'old' to only contain the PK, and in the case of an update, compress "new" to only contain the changed fields
   if TD["event"] == "INSERT":
-    payload = {"change": "+", "new": TD["new"]}
+    payload = {"+": TD["new"]}
   elif TD["event"] == "UPDATE":
-    payload = {"change": "->", "old": TD["old"], "new": TD["new"]}
+    payload = {"-": TD["old"], "+": TD["new"]}
   elif TD["event"] == "DELETE":
-    payload = {"change": "-", "old": TD["old"]}
+    payload = {"-": TD["old"]}
   payload = json.dumps(payload)
   print >>FIFO, payload
 $$ language plpython2u;
