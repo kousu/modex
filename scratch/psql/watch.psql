@@ -106,8 +106,9 @@ CREATE TRIGGER watch_table___
 
 INSERT INTO films VALUES ('Grass', 'Documentary', 0);
 INSERT INTO films VALUES ('The Mail Man', 'Documentary', 3);
+DELETE FROM films WHERE name = 'Sallu Sue' or name = 'Seventy Days';
 INSERT INTO films VALUES ('Superfly', 'Comedy', 5);
-
+UPDATE films SET name = 'Ugly Ducks' WHERE rating < 5;
 
 DROP MATERIALIZED VIEW IF EXISTS comedies_m;
 CREATE MATERIALIZED VIEW comedies_m AS
