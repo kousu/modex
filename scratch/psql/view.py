@@ -1,7 +1,12 @@
+#!/usr/bin/env python3
 # view.py
 """
 pure-python protoype of the sort of features we need in a (near-)real-time View.
 A standard
+
+This is in python3
+watch.psql is mainly in python2
+This awkwardness will be massaged out later.
 """
 
 import sys
@@ -61,14 +66,17 @@ class PipeChanges(ITableChanges):
         evt = ""
         while not evt: #hack around empty lines being a problem?!
             a,b,c = select.select([self._source], [], []) #blocks until self._source is ready
-            print("select result:", a, b, c)
+            #print("select result:", a, b, c)
             evt = self._source.readline() #blocks here; we could use select() but since we only wait on one 
         # XXX bug: readline() doesn't block on EOF (which python passes us as "")
         # patch: use `tail -f` instead of `cat`
         # XXX flakiness: running multiple readers can make the other reader steal some of the bytes and crash the JSON deserialization
         # XXX flakiness(?): postgres apparently doesn't call *any* triggers until the session (ie the database connection) that created them is closed(??)
             evt = evt.strip()
-            print("_next() read '%s'" % (evt,))
+            if not evt:
+                import time; time.sleep(0.1) #durp; i would rather select(), but polling is alright if I must.
+            else:       
+                print("_next() read '%s'" % (evt,))
         
         evt = json.loads(evt)   #TODO: handle exceptions here
         if "+" in evt and "-" in evt:
