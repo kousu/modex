@@ -22,6 +22,10 @@ from itertools import count
 
 # TODO: support replicators
 
+def debug(*args, **kwargs):
+    if "file" not in kwargs: kwargs["file"] = sys.stderr
+    print(*args, **kwargs)
+
 class ChangeEvent(object): #abstract base class
     pass
     
@@ -69,7 +73,7 @@ class PipeChanges(ITableChanges):
         evt = ""
         while not evt: #hack around empty lines being a problem?!
             a,b,c = select.select([self._source], [], []) #blocks until self._source is ready
-            #print("select result:", a, b, c)
+            debug("select result:", a, b, c)
             evt = self._source.readline() #blocks here; we could use select() but since we only wait on one 
         # XXX bug: readline() doesn't block on EOF (which python passes us as "")
         # patch: use `tail -f` instead of `cat`
@@ -79,7 +83,8 @@ class PipeChanges(ITableChanges):
             if not evt:
                 import time; time.sleep(0.1) #durp; i would rather select(), but polling is alright if I must.
             else:       
-                print("_next() read '%s'" % (evt,))
+                debug("_next() read '%s'" % (evt,)) #DEBUG
+                pass
         
         evt = json.loads(evt)   #TODO: handle exceptions here
         if "+" in evt and "-" in evt:
@@ -136,7 +141,7 @@ class View(object):
     
     def _publish(self, evt):
         if evt is None: return #silently make empty events into no-ops 
-        print(evt) #publish the event; for us, this elegantly just means printing
+        print(evt) #publish the event; for us, this elegantly just means printing; THIS SHOULD BE THE ONLY PRINT TO STDOUT IN THE PROGRAM.
         sys.stdout.flush()     #XXX hammer around buffering issues which make testing confusing
     
     
@@ -189,7 +194,7 @@ class View(object):
             evt = type(evt)(self._cull(evt.old), self._cull(evt.new))
         
         # XXX ^ the above flow can probably be simplified by rethinking the ChangeEvent hierarchy
-        print("FINALLY, evt is ", evt)
+        debug("FINALLY, evt is ", evt) #DEBUG
         self._publish(evt)
 
 
@@ -212,7 +217,7 @@ if __name__ == '__main__':
     
     # hardcoded where predicate
     def w(row):
-        print("where() clause received row", row)
+        debug("where() clause received row", row)
         return row["rating"] >= 3
     
     # ** the above three should be replaced by some code which parses the initial request    
@@ -230,7 +235,7 @@ if __name__ == '__main__':
         #
         v = View(PipeChanges(feed), where=w)
         for i in count():
-            print("-"*80)
-            print("step ", i)
+            debug("-"*80)
+            debug("step ", i)
             v._process()
-            print("-"*80)
+        
