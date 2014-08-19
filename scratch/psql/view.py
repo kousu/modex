@@ -2,7 +2,10 @@
 # view.py
 """
 pure-python protoype of the sort of features we need in a (near-)real-time View.
-A standard
+The goal is to support dataflow (aka Functional Reactive aka actor) programming on top of SQL.
+It is unfortunate that something like this does not already exist within postgres itself. At least,
+I have not been able to find such a thing. Instead, this fronts onto postgres, using some stored procedure
+shims which spool out all triggers.
 
 This is in python3
 watch.psql is mainly in python2
@@ -133,8 +136,8 @@ class View(object):
     
     def _publish(self, evt):
         if evt is None: return #silently make empty events into no-ops 
-        print("publishing", evt)
-        pass #???
+        print(evt) #publish the event; for us, this elegantly just means printing
+        sys.stdout.flush()     #XXX hammer around buffering issues which make testing confusing
     
     
     def _cull(self, row):
@@ -186,7 +189,7 @@ class View(object):
             evt = type(evt)(self._cull(evt.old), self._cull(evt.new))
         
         # XXX ^ the above flow can probably be simplified by rethinking the ChangeEvent hierarchy
-        
+        print("FINALLY, evt is ", evt)
         self._publish(evt)
 
 
@@ -196,7 +199,7 @@ if __name__ == '__main__':
     #def view([columns], table, where=None)
     #  - zeroth step is to parse the initial lines from the client, which contain the query: (columns, table, where)
     #  - first step is it tells the query to the DB ("select [columns] from table where ...")
-    #  - second it arranges to receive the feed (note: feed == stream == queue; it is ordered and waits for us to pull from it)) of changes for the given table ((this might involve setting up triggers? it also might involve speaking to 'teed')); I *think* the order is important here: we want to receive changes beginning after the query happened. Unless we specifically create (perhaps in the same query?).
+    #  - second it arranges to receive the feed (note: feed == stream == queue; it is ordered and waits for us to pull from it)) of changes for the given table ((this might involve setting up triggers? it also might involve speaking to 'teed')); I *think* the order is important here: we want to receive changes beginning exactly at the timestamp after the one the query is slicing. All methods besides the one I want will lead to a race condition here.
     #  - third it spools out the result of the query to the client, as a stream of + changes; because of [MVCC](https://wiki.postgresql.org/wiki/MVCC), this spools out
     #  - finally, it transparently switches over to spinning through the feed of changes, doing the filtering as it goes
     
