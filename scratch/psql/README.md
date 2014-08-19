@@ -1,7 +1,7 @@
 
 A subproject to provide a framework for linking model data to the web in a way that supports sophisticated queries so you can get specific pieces of data, and that keeps data up to date without requiring the web-page to re-download the whole page each time.
 
-The idea is to implement the postgress replication protocol [the replication protocol](http://www.postgresql.org/docs/current/static/protocol-replication.html) in javascript, and use [websockify](https://github.com/kanaka/websockify) to proxy javascript to the database.
+Postgres 9.4 has a feature called "Logical Replication", which does most of what we need, but it is not ready for prime time yet.
 
 We are currently thinking of using this with D3 for plots and maps.
 
@@ -25,16 +25,3 @@ Files
 Links
 -----
 
-* Postgres technical details:
-    * [src](http://git.postgresql.org/gitweb/?p=postgresql.git;a=tree)
-    * [developer's list](http://www.postgresql.org/list/pgsql-hackers/)
-    * [Postgres protocol](http://www.postgresql.org/docs/current/static/protocol.html)
-    * [Replication protocol](http://git.postgresql.org/gitweb/?p=postgresql.git;a=blob;f=src/backend/replication/walsender.c)
-    * [WAL definition](http://git.postgresql.org/gitweb/?p=postgresql.git;a=blob;f=src/include/access/xlog.h) -- in the code, called "XLog" which is short for "Transaction Log"
-    * [WAL implementation](http://git.postgresql.org/gitweb/?p=postgresql.git;a=blob;f=src/backend/access/transam/xlogreader.c)
-
-Scrap notes (TODO: move)
-------------------------
-
-postgres runs on tcp:5432 (tcp for reliable in order delivery)
-but uses a message based binary protocol
