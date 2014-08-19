@@ -124,8 +124,6 @@ CREATE MATERIALIZED VIEW comedies_m AS
 --REFRESH MATERIALIZED VIEW comedies_m;
 
 SELECT * FROM films;
-SELECT * FROM comedies;
-SELECT * FROM comedies_m;
 
 -- this is illegal; you can attach triggers only to tables and to views (and views have extra restrictions)
 -- 
@@ -135,9 +133,9 @@ SELECT * FROM comedies_m;
 --  FOR EACH STATEMENT
 --  EXECUTE PROCEDURE watch_table();
 
-CREATE TRIGGER watch_table_view
-  AFTER INSERT OR UPDATE OR DELETE
-  ON comedies
-  FOR EACH STATEMENT
-  EXECUTE PROCEDURE watch_table('comedies');
+-- CREATE TRIGGER watch_table_view
+--  AFTER INSERT OR UPDATE OR DELETE
+--  ON comedies
+--  FOR EACH STATEMENT
+--  EXECUTE PROCEDURE watch_table('comedies');
 
