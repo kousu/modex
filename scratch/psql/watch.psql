@@ -29,6 +29,10 @@ CREATE FUNCTION watch_table() RETURNS trigger AS $$
   # triggers do not have arguments passed
   # instead, pl/python passes the trigger data *and* any arguments given when you define the trigger in sub-members of the global variable TD
   
+  import json
+  import errno
+  
+  
   table_name = TD["table_name"]
   FIFO = "_changes_%s" % (table_name,)
   import os
@@ -65,16 +69,19 @@ CREATE FUNCTION watch_table() RETURNS trigger AS $$
     # XXX problem: a nonblocking pipe cannot be opened until there is a reader to read it; the reader may go away after a moment and everything will be peachy, but startup is hard
     # ..hm.
     
-    fd = os.open(FIFO, os.O_WRONLY | os.O_NONBLOCK) #O_NONBLOCK is key; otherwise, updates will *hang* the postgres process until someone open()s the FIFO
-    FIFO = os.fdopen(fd, "w", 0) #OVERWRITES; buffering=1 means line buffered, and this is important since the default is to buffer at 4K which is too slow for our real-time purpose
-    SD["FIFO"] = FIFO
-    print "SD is now", SD
-    
-
-  import json
+    try:
+      fd = os.open(FIFO, os.O_WRONLY | os.O_NONBLOCK) #O_NONBLOCK is key; otherwise, updates will *hang* the postgres process until someone open()s the FIFO
+      FIFO = os.fdopen(fd, "w", 0) #OVERWRITES; buffering=1 means line buffered, and this is important since the default is to buffer at 4K which is too slow for our real-time purpose
+      SD["FIFO"] = FIFO
+      print "SD is now", SD
+    except OSError as err:
+      if err.errno == errno.ENXIO: #no one is listening; that's okay, just shortcircuit for now.
+        return
+      else:
+        raise
   
   FIFO = SD["FIFO"] #retrieve the FIFO from the static data, if this is our second (or even first) time around
-
+  
   # ... when there's no consumers, shouldn't the prints get EPIPE?
   #print TD["table_name"], #<-- no newline
   print "Got triggered:", TD #, "locals=",locals(),"globals=",globals()
@@ -88,7 +95,16 @@ CREATE FUNCTION watch_table() RETURNS trigger AS $$
   elif TD["event"] == "DELETE":
     payload = {"-": TD["old"]}
   payload = json.dumps(payload)
-  print >>FIFO, payload
+  
+  try:
+      print >>FIFO, payload   #we could also use (multicast?) UDP here (and let the OS handle it) instead of having to check for ENXIO. additionally, UDP allows multiple processes on one machine to receive the same stream.
+  except IOError as err:
+    # solve the race condition where if the listener dies *during* a single session (remember: the stored procedure is stored once per server, but actually run once per client)
+    #  ..it might be more reliable (but less efficient?? need to test this) to just reopen on every single call (but even then, we have to handle what happens if the thing dies after open() but before write())
+    if err.errno == errno.EPIPE: #no one is listening; that's okay...
+      pass
+    else:
+      raise
 $$ language plpython2u;
 
 

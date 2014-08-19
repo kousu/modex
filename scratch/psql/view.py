@@ -12,6 +12,40 @@ watch.psql is mainly in python2
 This awkwardness will be massaged out later.
 """
 
+
+
+"""
+Bugs:
+
+
+
+goal: solve select() on a pipe is returning even when there is nothing to read, forcing me to use a polling loop
+    write some experiments to test select() vs pipes
+    
+experiment with multicast UDP instead of mkfifo + teed
+ 
+goal: document how to run / make running less stupid
+ -> rename server.sh to db_server.sh and such; and db_server.sh should also kick initdb off if it hasn't run lately
+ -> maybe use libpq environment variables (but then things are annoying to clean up..)
+ 
+embed watch.psql into view.py 
+ -> split it so that the watching function is loadable, and we (initially we can just always reload it)
+ -> make the part that actually initially
+  or possibly a better solution is to use DDL triggers so that every table has a watch on it...
+
+deal with the problem that loading the trigger makes all fail if there's no listeners
+ --> can we use select() here??
+
+write test case .sql files. We need to initialize the DB to some state (perhaps with \COPY?) exercises inserts, deletes, updates (forget \COPY, that's just a complication)
+ (is there best practices for initializing dbs to known states under test? there must be...)
+ 
+
+use CREATE OR REPLACE instead of DROP + CREATE in watch.psql
+
+far-hanging-fruit
+- catch DROPs
+"""
+
 import sys
 import json #for IPC; this will get replaced with something more tuned for high-volume later
 #import sqlalchemy
