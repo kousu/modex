@@ -105,7 +105,7 @@ $$
      return sinks[_table]
   """
   
-  import tempfile, socket
+  import os, tempfile, socket, select
   import json
   
   
@@ -118,19 +118,31 @@ $$
     
     def __init__(self, table): #TODO: support where clauses
       self._table = table
-    
+      self._stream_id = None
+      
     def __enter__(self):
       # set up our listening socket
-      self._sock = socket.socket(socket.AF_LOCAL, socket.SOCK_DGRAM)
+      self._sock = socket.socket(socket.AF_UNIX, socket.SOCK_DGRAM)
       self._sock.bind(tempfile.mktemp())
       
       # register ourselves with the source
-      self._sock.getsockname()
-    
-    def __exit__(self):
-      # unregister ourselves
-      #plpy.execute("select * from ", self._sock.getsockname())
+      # XXX SQL injection here
+      r = plpy.execute("select * from my_pg_replicate_register('%s', '%s')" % (self._sock.getsockname(), self._table))
+      r = r[0]           # register() gives a scalar, which is returned to us as a 1-row list
+      r = r[r.keys()[0]] #  whose row is a 1-element dictionary
+      print("register() result is: ", r)
       
+      self._stream_id = r
+      
+      return self #oops!
+    
+    def __exit__(self, *args):
+      # unregister ourselves
+      # XXX SQL injection here
+      r = plpy.execute("select * from my_pg_replicate_unregister('%s')" % (self._stream_id))
+      r = r[0]
+      r = r[r.keys()[0]]
+      print("unregister() result is: ", r)
       
       # shutdown the socket
       os.unlink(self._sock.getsockname()) # necessary because we're using unix domain sockets
@@ -139,7 +151,7 @@ $$
     def __iter__(self):
       return self
     
-    def __next__(self):
+    def next(self):
       fread, fwrite, ferr = select.select([self._sock], [], [self._sock])  #block until some data is available
       if ferr:
         pass #XXX
@@ -163,22 +175,25 @@ $$
   # ...without logical indexing, I think I need to watch..
   # this is sort of tricky
   # I need to say somethign like
-  ask_to_watch_table_from_now_on(_table)
-  maybe
-  changes = watch(_table); #this triggers a
-
-  # 3) spool out the current state
-  for row in cur:
-    print("row=",row)
-    delta = {"+": row} #convert row to our made up delta format
-    delta = json.dumps(delta) #and then to JSON
-    yield delta
-  # if this was in pure plsql, this call would be "to_json(row)"
-  
-  # 4) spin, spooling out the change stream
   with Changes(_table) as changes: #<-- use with to get the benefits of RAII, since Changes has a listening endpoint to worry about cleaning up
+    
+    # 3) spool out the current state
+    for row in cur:
+      print("row=",row)
+      delta = {"+": row} #convert row to our made up delta format
+      delta = json.dumps(delta) #and then to JSON
+      print("YIELDING UP SOME STUFF YO", delta)
+      yield delta
+  # if this was in pure plsql, this call would be "to_json(row)"
+    print("STEP THREE IS FINITO")
+  # 4) spin, spooling out the change stream
+    
     for delta in changes:
       # we assume that the source already jsonified things for us; THIS MIGHT BE A MISTAKE
+      
+      print("YIELDING UP SOME STUFF YO", delta)
       yield delta
+    # NOTREACHED (unless something crashes, the changes feed should be infinite)
+    print("STEP FOUR IS FINITO ")
       
 $$ LANGUAGE plpython2u;
