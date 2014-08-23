@@ -45,6 +45,35 @@ CREATE TRIGGER my_pg_replicate_trigger
   FOR EACH ROW
   EXECUTE PROCEDURE my_pg_replicate_broadcast();
 
+
+
+-- "-_table" should eventually become "stream_id" with a spare table mapping stream_id to (table, columns, where)
+DROP TABLE IF EXISTS my_pg_replicate_clients;
+CREATE TABLE my_pg_replicate_clients (stream_id text PRIMARY KEY, addr text, _table text);
+
+--TODO: this function is simple enough that it could be done in plpgsql, which should be faster
+CREATE OR REPLACE FUNCTION my_pg_replicate_register(addr text, _table text) RETURNS text AS
+$$
+  # returns the stream id for unregistering (& etc)
+  
+  import uuid
+  stream_id = uuid.uuid4().hex
+  
+  plant = plpy.prepare("insert into my_pg_replicate_clients values ($1, $2, $3)", ["text", "text", "text"])
+  plpy.execute(plant, [stream_id, addr, _table]);
+  
+  return stream_id; 
+$$ LANGUAGE plpython2u;
+
+CREATE OR REPLACE FUNCTION my_pg_replicate_unregister(stream_id text) RETURNS bool AS
+$$
+  plant = plpy.prepare("delete from my_pg_replicate_clients where stream_id = $1", ["text"])
+  plpy.execute(plant, [stream_id])
+  return True; #TODO: check if the query did anything (?? does execute() return a list of affected rows or something we can look at?)
+$$ LANGUAGE plpython2u;
+
+
+
 CREATE OR REPLACE FUNCTION replicate (_table text) RETURNS SETOF json AS
 $$
   """
@@ -55,7 +84,7 @@ $$
                                 
     "_table" because "table" is a reserved word in SQL.
   """
-    """
+  """
   what is a sink going to be? Do I want to use a FIFO? do i want too>??
     I cannot use anything python internal, because python instances only last per client ((which is probably a good security idea, now that I think about it))
     FIFOs satisfy most of my constraints except for the multiple listeners one
@@ -78,7 +107,7 @@ $$
   
   import tempfile, socket
   import json
-
+  
   
   # this is code that should be library code
   # but installing it such that postgres can read it
