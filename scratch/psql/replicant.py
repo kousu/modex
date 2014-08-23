@@ -43,11 +43,9 @@ embed watch.psql into view.py
  -> make the part that actually initially
   or possibly a better solution is to use DDL triggers so that every table has a watch on it...
 
-write test case .sql files. We need to initialize the DB to some state (perhaps with \COPY?) exercises inserts, deletes, updates (forget \COPY, that's just a complication)
- (is there best practices for initializing dbs to known states under test? there must be...)
- 
 
-use CREATE OR REPLACE instead of DROP + CREATE in watch.psql
+bug: DELETE FROM table; doesn't flush its results immediately??
+
 
 far-hanging-fruit
 - catch DROPs
