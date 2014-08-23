@@ -50,10 +50,70 @@ $$
                                 
     "_table" because "table" is a reserved word in SQL.
   """
-  import json
-  #print plpy
-  #print(_table);
-  #import IPython; IPython.embed();
+
+  """
+  what is a sink going to be? Do I want to use a FIFO? do i want too>??
+    I cannot use anything python internal, because python instances only last per client ((which is probably a good security idea, now that I think about it))
+    FIFOs satisfy most of my constraints except for the multiple listeners one
+    I *could* do it with another postgres table with a trigger on it:
+     - things insert to the table; 
+     - watch_listeners ( table, listener, position )
+     - watch_data ( table, pos, data ) with (pos) autoincrementing (within a table slice)
+  
+    def watch(_table):
+      if not trigger exists (_table):
+          create sinks[_table]
+        create trigger watch_${_table} after update or insert or delete on _table for each row execute procedure watch_trigger();
+          # ^as soon as this happens, the trigger may allow things to get pushed to the queue
+          # ..hm. its possible to miss some events, this way, unless maybe we lock every time a (though that's dangerous..)
+           #. so we need to create the sink and register ourselves as a listener, *then* push the sink.
+      register self as a listener to sinks[_table] (internally, causes the sink to make another queue)
+
+     return sinks[_table]
+  """
+  
+  # this is code that should be library code
+  # but installing it such that postgres can read it and without stomping on other things too badly is hard
+  # so for now it is just loaded here
+  
+  import tempfile, socket
+  
+  class Changes:
+    MTU = 2048 #maximum bytes to read per message
+    
+    def __init__(self, table): #TODO: support where clauses
+      self._table = table
+  
+    def __enter__(self):
+      # set up our listening socket
+      self._sock = socket.socket(socket.AF_LOCAL, socket.SOCK_DGRAM)
+      self._sock.bind(tempfile.mktemp())
+      
+      # register ourselves with the source
+      self._sock.getsockname()
+    
+    def __exit__(self):
+      # unregister ourselves
+      
+      # shutdown the socket
+      os.unlink(self._sock.getsockname()) # necessary because we're using unix domain sockets
+      self._sock.close()
+    
+    def __iter__(self): return self
+    def __next__(self):
+      fread, fwrite, ferr = select.select([self._sock], [], [self._sock])  #block until some data is available
+      if ferr:
+        pass #XXX
+      else:
+        return self._sock.recv(Changes.MTU)
+
+  import json        
+        
+  # question: why is one direction of IPC going over sockets and the other not?
+  #  client -> server I'm just calling stored procedures and editing DB tables
+  #  server -> client I'm using sockets
+  # justification: the server is centralized; while I *could* spin up a master using a `DO $$ AS` in the initialization script and have clients talk to it over sockets, since it is centralized it is just as easy to; but the clients are many, and moreover they are ephemeral.
+  
   # 1) get a cursor on the current query
   #plan = plpy.prepare("select * from $1", ["text"]) # use a planner object to safeguard against SQL injection
   #print("the plan is", plan)
@@ -64,18 +124,22 @@ $$
   # 2) get a handle on the change stream beginning *now* (?? maybe this involves locking?)
   # ...without logical indexing, I think I need to watch..
   # this is sort of tricky
-  #
+  # I need to say somethign like
+  ask_to_watch_table_from_now_on(_table)
+  maybe
+  changes = watch(_table); #this triggers a
 
   # 3) spool out the current state
   for row in cur:
     print("row=",row)
-    row = {"+": row} #convert row to our made up delta format
-    row = json.dumps(row) #and then to JSON
-    yield row
+    delta = {"+": row} #convert row to our made up delta format
+    delta = json.dumps(delta) #and then to JSON
+    yield delta
   # if this was in pure plsql, this call would be "to_json(row)"
   
   # 4) spin, spooling out the change stream
-  changes = [] #TODO
-  for row in changes:
-    yield row
+  with Changes(_table) as changes: #<-- use with to get the benefits of RAII, since Changes has a listening endpoint to worry about cleaning up
+    for delta in changes:
+      # we assume that the source already jsonified things for us; THIS MIGHT BE A MISTAKE
+      yield delta
 $$ LANGUAGE plpython2u;
