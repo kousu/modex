@@ -4,6 +4,7 @@
 -- while 9.4 has Logical Replication, it a) conflicts with b) demands you poll (whereas CouchDB, whose filtered replication feature is what I'm trying to implement, [supports](http://couchdb.readthedocs.org/en/latest/replication/protocol.html#filter-replication) both pull ((long-)polling mode (the details of the long-polling variant are irrelevant to us; it's simply a workaround for HTTP being stupid, which we sidestep by not using HTTP at all)) and push ("streaming mode")
 
 
+
 CREATE OR REPLACE LANGUAGE plpython2u;
 
 -- DESIGN: abuse tables and triggers to construct event queues 
@@ -24,7 +25,9 @@ CREATE OR REPLACE LANGUAGE plpython2u;
 -- Much of the effort to go out of the way to use the DB itself as storage is because, presumably for security reasons, postgres runs multiple python processes (presumably the same is true for perl)--one per *client connection*. There is no way to just create global python objects and share them across all users. In particular, there's no way to create a pure python queue object for each client to listen on. However, that's what sockets are good for; plus, sockets (or, equivalently, a FIFO or a file) come with blocking built in for free (other options would require polling).
 -- This restriction's probably a good thing. It also takes the complication of python-level concurrency out of the picture.
 
-CREATE OR REPLACE TABLE my_pg_replicate (event json);
+DROP TABLE IF EXISTS my_pg_replicate;
+CREATE TABLE my_pg_replicate (event json);
+
 CREATE OR REPLACE FUNCTION my_pg_replicate_broadcast() RETURNS trigger AS
 $$
   """
@@ -33,11 +36,13 @@ $$
   """
   # TODO...
   print("[my_pg_replicate_broadcast()]: broadcasting ", TD["new"])
+  return "SKIP"
 $$ LANGUAGE plpython2u;
 
 CREATE TRIGGER my_pg_replicate_trigger
-  INSTEAD OF INSERT  -- We only catch INSERT here, because we mean to
+  BEFORE INSERT  -- We only catch INSERT here, because we mean to
   ON my_pg_replicate -- maintain the invariant that this table is empty
+  FOR EACH ROW
   EXECUTE PROCEDURE my_pg_replicate_broadcast();
 
 CREATE OR REPLACE FUNCTION replicate (_table text) RETURNS SETOF json AS
@@ -50,8 +55,7 @@ $$
                                 
     "_table" because "table" is a reserved word in SQL.
   """
-
-  """
+    """
   what is a sink going to be? Do I want to use a FIFO? do i want too>??
     I cannot use anything python internal, because python instances only last per client ((which is probably a good security idea, now that I think about it))
     FIFOs satisfy most of my constraints except for the multiple listeners one
@@ -72,18 +76,20 @@ $$
      return sinks[_table]
   """
   
-  # this is code that should be library code
-  # but installing it such that postgres can read it and without stomping on other things too badly is hard
-  # so for now it is just loaded here
-  
   import tempfile, socket
+  import json
+
   
+  # this is code that should be library code
+  # but installing it such that postgres can read it
+  # and without stomping on other things too badly is hard
+  # so for now it is just loaded here over and over again
   class Changes:
     MTU = 2048 #maximum bytes to read per message
     
     def __init__(self, table): #TODO: support where clauses
       self._table = table
-  
+    
     def __enter__(self):
       # set up our listening socket
       self._sock = socket.socket(socket.AF_LOCAL, socket.SOCK_DGRAM)
@@ -94,28 +100,31 @@ $$
     
     def __exit__(self):
       # unregister ourselves
+      #plpy.execute("select * from ", self._sock.getsockname())
+      
       
       # shutdown the socket
       os.unlink(self._sock.getsockname()) # necessary because we're using unix domain sockets
       self._sock.close()
     
-    def __iter__(self): return self
+    def __iter__(self):
+      return self
+    
     def __next__(self):
       fread, fwrite, ferr = select.select([self._sock], [], [self._sock])  #block until some data is available
       if ferr:
         pass #XXX
       else:
         return self._sock.recv(Changes.MTU)
-
-  import json        
-        
+  
+  
   # question: why is one direction of IPC going over sockets and the other not?
   #  client -> server I'm just calling stored procedures and editing DB tables
   #  server -> client I'm using sockets
-  # justification: the server is centralized; while I *could* spin up a master using a `DO $$ AS` in the initialization script and have clients talk to it over sockets, since it is centralized it is just as easy to; but the clients are many, and moreover they are ephemeral.
+  # justification: the server is centralized; while I *could* spin up a master using a DO AS in the initialization script and have clients talk to it over sockets, since it is centralized it is just as easy to; but the clients are many, and moreover they are ephemeral.
   
   # 1) get a cursor on the current query
-  #plan = plpy.prepare("select * from $1", ["text"]) # use a planner object to safeguard against SQL injection
+  #plan = plpy.prepare("select * from $1", ["text"]) # use a planner object to safeguard against SQL injection #<--- ugh, but postgres disagrees with this; I guess it doesn't want the table name to be dynamic..
   #print("the plan is", plan)
   #cur = plpy.cursor(plan, [_table]);
   cur = plpy.cursor("select * from %s" % (_table,))
@@ -142,4 +151,5 @@ $$
     for delta in changes:
       # we assume that the source already jsonified things for us; THIS MIGHT BE A MISTAKE
       yield delta
+      
 $$ LANGUAGE plpython2u;
