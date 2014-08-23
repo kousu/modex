@@ -7,6 +7,21 @@ We are currently thinking of using this with D3 for plots and maps.
 
 Alternative approaches to using data on the web include querying specific streams, CouchDB, and dat (dat-data.com). (What others?)
 
+Quickstart
+---------
+
+To start, make sure you have installed python, postgresql with the pl/python extension, and 
+
+```
+$ initdb data
+$ ./server.sh
+```
+
+To reset,
+```
+$ rm -r data/
+```
+
 Issues
 ------
 
