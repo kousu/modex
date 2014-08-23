@@ -1,0 +1,43 @@
+
+-- 
+
+CREATE OR REPLACE LANGUAGE plpython2u;
+
+
+
+CREATE OR REPLACE FUNCTION replicate (_table text) RETURNS SETOF json AS
+$$
+  """
+   Create an iterator returning the state of table _table as a stream of changes in row-delta format.
+    returns json because a) that is convenient for our use case (db-to-web replication)
+                         b) otherwise every different table would need a different replicate function
+  """
+  import json
+  #print plpy
+  #print(_table);
+  #import IPython; IPython.embed();
+  # 1) get a cursor on the current query
+  #plan = plpy.prepare("select * from $1", ["text"]) # use a planner object to safeguard against SQL injection
+  #print("the plan is", plan)
+  #cur = plpy.cursor(plan, [_table]);
+  cur = plpy.cursor("select * from %s" % (_table,))
+  print("cur=",cur);
+  
+  # 2) get a handle on the change stream beginning *now* (?? maybe this involves locking?)
+  # ...without logical indexing, I think I need to watch..
+  # this is sort of tricky
+  #
+
+  # 3) spool out the current state
+  for row in cur:
+    print("row=",row)
+    row = {"+": row} #convert row to our made up delta format
+    row = json.dumps(row) #and then to JSON
+    yield row
+  # if this was in pure plsql, this call would be "to_json(row)"
+  
+  # 4) spin, spooling out the change stream
+  changes = [] #TODO
+  for row in changes:
+    yield row
+$$ LANGUAGE plpython2u;
