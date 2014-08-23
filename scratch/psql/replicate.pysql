@@ -1,16 +1,54 @@
 
--- 
+-- implement Logical Replication in pre-9.4 postgres
+--  also, this implementation is tuned to solve the specific problem of replicating to the web 
+-- while 9.4 has Logical Replication, it a) conflicts with b) demands you poll (whereas CouchDB, whose filtered replication feature is what I'm trying to implement, [supports](http://couchdb.readthedocs.org/en/latest/replication/protocol.html#filter-replication) both pull ((long-)polling mode (the details of the long-polling variant are irrelevant to us; it's simply a workaround for HTTP being stupid, which we sidestep by not using HTTP at all)) and push ("streaming mode")
+
 
 CREATE OR REPLACE LANGUAGE plpython2u;
 
+-- DESIGN: abuse tables and triggers to construct event queues 
+-- 
+--  init_replicate(_table) sets watch() as a trigger on the given _table, if it is not already there
+--   watch() formats changes as HRDJ (hobo-rowdelta json) format and writes to my_pg_replicate
+--   my_pg_replicate is used as a queue; broadcast() is set as an INSTEAD OF trigger on it, stopping any data actually getting written to it; 
+--   instead, broadcast() takes the HRDJ it received indirectly from watch() and copies it to all active clients; 
+--  
+--  on the "client" side, replicate(_table) first calls into the "server" side with init_replicate(_table), retrieving replicate_stream_id
+--   then constructs a datagram (i.e. connectionless) socket to listen on, and calls into the "server" side 
+--   register(replicate_stream_id, listen_addr)
+--   which simply inserts that tuple into the table my_pg_replicate_{..??}
 
+-- XXX replicate_stream_id is unclear at the moment; I know I need something like it to distinguish which feed of changes is being fed (at the moment, the only feeds are tables, but in the future we want to support distinct views, in order to be able to do /filtered/ replication).
+
+--  
+-- Much of the effort to go out of the way to use the DB itself as storage is because, presumably for security reasons, postgres runs multiple python processes (presumably the same is true for perl)--one per *client connection*. There is no way to just create global python objects and share them across all users. In particular, there's no way to create a pure python queue object for each client to listen on. However, that's what sockets are good for; plus, sockets (or, equivalently, a FIFO or a file) come with blocking built in for free (other options would require polling).
+-- This restriction's probably a good thing. It also takes the complication of python-level concurrency out of the picture.
+
+CREATE OR REPLACE TABLE my_pg_replicate (event json);
+CREATE OR REPLACE FUNCTION my_pg_replicate_broadcast() RETURNS trigger AS
+$$
+  """
+  
+  this trigger stops anything
+  """
+  # TODO...
+  print("[my_pg_replicate_broadcast()]: broadcasting ", TD["new"])
+$$ LANGUAGE plpython2u;
+
+CREATE TRIGGER my_pg_replicate_trigger
+  INSTEAD OF INSERT  -- We only catch INSERT here, because we mean to
+  ON my_pg_replicate -- maintain the invariant that this table is empty
+  EXECUTE PROCEDURE my_pg_replicate_broadcast();
 
 CREATE OR REPLACE FUNCTION replicate (_table text) RETURNS SETOF json AS
 $$
   """
    Create an iterator returning the state of table _table as a stream of changes in row-delta format.
     returns json because a) that is convenient for our use case (db-to-web replication)
+                         a.2) anyway, we aren't giving rows, we're giving row deltas 
                          b) otherwise every different table would need a different replicate function
+                                
+    "_table" because "table" is a reserved word in SQL.
   """
   import json
   #print plpy
