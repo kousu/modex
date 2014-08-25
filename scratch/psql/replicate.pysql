@@ -62,6 +62,8 @@ $$
   plant = plpy.prepare("insert into my_pg_replicate_clients values ($1, $2, $3)", ["text", "text", "text"])
   plpy.execute(plant, [stream_id, addr, _table]);
   
+  # this function should also install triggers on _table if they are not already there
+  
   return stream_id; 
 $$ LANGUAGE plpython2u;
 
@@ -70,6 +72,8 @@ $$
   plant = plpy.prepare("delete from my_pg_replicate_clients where stream_id = $1", ["text"])
   plpy.execute(plant, [stream_id])
   return True; #TODO: check if the query did anything (?? does execute() return a list of affected rows or something we can look at?)
+  
+  # this function should also uninstall triggers if there are no listeners for _table left
 $$ LANGUAGE plpython2u;
 
 
@@ -104,9 +108,7 @@ $$
 
      return sinks[_table]
   """
-  
-  import os, tempfile, socket, select
-  import json
+   
   
   
   # this is code that should be library code
