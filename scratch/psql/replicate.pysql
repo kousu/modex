@@ -51,6 +51,11 @@ CREATE TRIGGER my_pg_replicate_trigger
 DROP TABLE IF EXISTS my_pg_replicate_clients;
 CREATE TABLE my_pg_replicate_clients (stream_id text PRIMARY KEY, addr text, _table text);
 
+-- a simple data structure to refcount how many times each trigger is being listened to (ie how many clients are replicating each table)
+--  refcounting is simple to implement; when the uses count drops to zero the trigger is deleted
+DROP TABLE IF EXISTS my_pg_replicate_triggers;
+CREATE TABLE my_pg_replicate_triggers (_table text PRIMARY KEY, trigger text, uses int);
+
 --TODO: this function is simple enough that it could be done in plpgsql, which should be faster
 CREATE OR REPLACE FUNCTION my_pg_replicate_register(addr text, _table text) RETURNS text AS
 $$
@@ -63,6 +68,25 @@ $$
   plpy.execute(plant, [stream_id, addr, _table]);
   
   # this function should also install triggers on _table if they are not already there
+  # XXX SQL injection
+  r = plpy.execute("select _table from my_pg_replicate_triggers where _table = '%s'" % (_table,))
+  #import IPython; IPython.embed()
+  if r.nrows():
+    #XXX SQL injection
+    plpy.execute("update my_pg_replicate_triggers set uses = uses + 1 where _table = '%s'" % (_table,))
+  else:
+    # table is currently unwatched; generate a random name and install the trigger
+    name = "watch_" + uuid.uuid4().hex
+    plpy.execute(
+    """CREATE TRIGGER %s
+    AFTER INSERT OR UPDATE OR DELETE
+    ON %s
+    FOR EACH ROW
+    EXECUTE PROCEDURE watch_table()
+    """ % (name, _table))
+    
+    # record that the trigger is installed
+    plpy.execute("insert into my_pg_replicate_triggers values ('%s', '%s', 1)" % (_table, name))
   
   return stream_id; 
 $$ LANGUAGE plpython2u;

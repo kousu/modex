@@ -3,6 +3,8 @@
 # third-time's-a-charm edition
 # depends: sqlalchemy
 
+# depends: watch.pysql and replicate.pysql are loaded into postgres
+
 import sqlalchemy
 
 
