@@ -79,12 +79,15 @@ class Changes:
   
 
 def replicate(_table):
-  print("&&&& &&& & & && &&&why in replicate")
   # 1) get a cursor on the current query
   #plan = plpy.prepare("select * from $1", ["text"]) # use a planner object to safeguard against SQL injection #<--- ugh, but postgres disagrees with this; I guess it doesn't want the table name to be dynamic..
   #print("the plan is", plan)
   #cur = plpy.cursor(plan, [_table]);
-  cur = C.execute("select * from %s" % (_table,))
+  # stream_results is turned on for this query so that this line takes as little time as possible
+  cur = C.execution_options(stream_results=True).execute("select * from %s" % (_table,))
+  
+  # XXX we might need to construct the Changes stream first
+  #  If we do have concurrency problems, doing that at least guarantees that we don't miss any changes, though we might end up with duplicate rows or trying to delete nonexistent rows
   
   # 2) get a handle on the change stream beginning at the commit postgres was at *now* (?? maybe this involves locking?)
   #  XXX we're relying on the time between the select and Changes.__enter__() to be small enough to be atomically
