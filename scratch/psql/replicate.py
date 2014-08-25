@@ -85,33 +85,34 @@ def replicate(_table):
   #print("the plan is", plan)
   #cur = plpy.cursor(plan, [_table]);
   cur = C.execute("select * from %s" % (_table,))
-  print("cur=",cur);
   
-  # 2) get a handle on the change stream beginning *now* (?? maybe this involves locking?)
-  # ...without logical indexing, I think I need to watch..
+  # 2) get a handle on the change stream beginning at the commit postgres was at *now* (?? maybe this involves locking?)
+  #  XXX we're relying on the time between the select and Changes.__enter__() to be small enough to be atomically
+  #   but that's never absolutely true so this has a race condition!
+  #  It would be better if we could ask postgres
+  #   "what is the lamport clock of our previous select", which postgres internally records [CITE: ....]
+  #  And then say "with Changes(_table,[ columns,][ where,] from=clock)"
+  # (NB: a lamport clock is a count of events; it has nothing to do with real time except that it always increases in time, making it suitable for synchronizing concurrent processes even when their system clocks might skew)
+  # but postgres doesn't seem(?) to provide a way to extract; it just uses timelines to make sure every session sees a consistent set of data.
   # this is sort of tricky
   # I need to say somethign like
   with Changes(_table) as changes: #<-- use with to get the benefits of RAII, since Changes has a listening endpoint to worry about cleaning up
-    print("inside the with:")
     
-    # 3) spool out the current state
+  # 3) spool out the current state
+  # ---------------------------------------------------
     for row in cur:
       print("row=",row)
       row = dict(zip(cur.keys(), row))
       delta = {"+": row} #convert row to our made up delta format
       delta = json.dumps(delta) #and then to JSON
-      print("YIELDING UP SOME STUFF YO", delta)
       yield delta
-    # if this was in pure plsql, this call would be "to_json(row)"
-    print("STEP THREE IS FINITO")
-    # 4) spin, spooling out the change stream
+  
+  # 4) spin, spooling out the change stream
+  # ---------------------------------------------------
     for delta in changes:
-      # we assume that the source already jsonified things for us; THIS MIGHT BE A MISTAKE
-      
-      print("YIELDING UP SOME STUFF YO", delta)
+      # we assume that the source (watch_table()) has already jsonified things for us; THIS MIGHT BE A MISTAKE
       yield delta
     # NOTREACHED (unless something crashes, the changes feed should be infinite)
-    print("STEP FOUR IS FINITO ")
     
     
 if __name__ == '__main__':

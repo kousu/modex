@@ -25,8 +25,20 @@ CREATE OR REPLACE FUNCTION watch_table() RETURNS trigger AS $$
   import json
   import errno
   
+  def trigger_to_hrdj(TD):
+    "reformat an event in pl/python TD to HRDJ (hobo-replication-delta-json) format"      
+    if TD["event"] == "INSERT":
+      payload = {"+": TD["new"]}
+    elif TD["event"] == "UPDATE":
+      payload = {"-": TD["old"], "+": TD["new"]}
+    elif TD["event"] == "DELETE":
+      payload = {"-": TD["old"]}
+    payload = json.dumps(payload)
+    return payload
+  
   
   table_name = TD["table_name"]
+  
   FIFO = "_changes_%s" % (table_name,)
   import os
   FIFO = os.path.abspath(FIFO)
@@ -81,13 +93,7 @@ CREATE OR REPLACE FUNCTION watch_table() RETURNS trigger AS $$
   # the output format here is:
   # a json object with a single "new" for an insert, a single "old" for a deletion, and both an "old" and a "new" for; beware that this makes the type of change *implicit*; it has the added bonus that it is reallllly simple to consume, since consumers can just look for an "old" tag, act on it, then for a "new" tag and act on that (but have the option of being more clever)
   # TODO: define some kind of remote primary key semantics and, for tables that have SQL primary keys, compress 'old' to only contain the PK, and in the case of an update, compress "new" to only contain the changed fields
-  if TD["event"] == "INSERT":
-    payload = {"+": TD["new"]}
-  elif TD["event"] == "UPDATE":
-    payload = {"-": TD["old"], "+": TD["new"]}
-  elif TD["event"] == "DELETE":
-    payload = {"-": TD["old"]}
-  payload = json.dumps(payload)
+  payload = trigger_to_hrdj(TD)
   
   try:
       print >>FIFO, payload   #we could also use (multicast?) UDP here (and let the OS handle it) instead of having to check for ENXIO. additionally, UDP allows multiple processes on one machine to receive the same stream.
