@@ -11,6 +11,9 @@ TODO:
 
 clean up the sql injections
 
+clean up naming ("my_pg"? really?)
+
+support views (filtered replication) ---- doing this right requires some finesse. I have the logic written down in replicant.py, but distinguishing each client from each other will be tricky.
 
 consider whether we can ditch SQLAlchemy; all this script does is issue simple SQL commands.
  speaking DBAPI directly would be less heavy
@@ -111,20 +114,6 @@ class Changes:
   
 
 def replicate(_table):
-  # 1) get a cursor on the current query
-  #plan = plpy.prepare("select * from $1", ["text"]) # use a planner object to safeguard against SQL injection #<--- ugh, but postgres disagrees with this; I guess it doesn't want the table name to be dynamic..
-  #print("the plan is", plan)
-  #cur = plpy.cursor(plan, [_table]);
-  # stream_results is turned on for this query so that this line takes as little time as possible
-  
-  C_DBAPI = E.raw_connection()
-  #cur = C.execution_options(stream_results=False).execute("select * from %s" % (_table,))
-  
-  cur = C_DBAPI.cursor()
-  # XXX this needs to be wrapped in a try: ... finally: C_DBAPI.close()
-  cur.execute("select * from %s" % (_table,))
-  
-  # 
   
   
   # XXX we might need to construct the Changes stream first
@@ -142,6 +131,22 @@ def replicate(_table):
   # I need to say somethign like
   
   with Changes(_table) as changes: #<-- use with to get the benefits of RAII, since Changes has a listening endpoint to worry about cleaning up
+    
+    # README: BUGFIX: the change to raw_connection() caused a deadlock which only occurs the first time register() is called: register() needs to create a trigger on _table, but cur holds a lock on _table
+    #  it seems, however, that reordering the instructions avoids the deadlock
+    #  and i was already considering doing this; this order means we potentially have overlapping state in the Changes and cur feeds
+    # 1) get a cursor on the current query
+    #plan = plpy.prepare("select * from $1", ["text"]) # use a planner object to safeguard against SQL injection #<--- ugh, but postgres disagrees with this; I guess it doesn't want the table name to be dynamic..
+    #print("the plan is", plan)
+    #cur = plpy.cursor(plan, [_table]);
+    # stream_results is turned on for this query so that this line takes as little time as possible
+    
+    C_DBAPI = E.raw_connection()
+    #cur = C.execution_options(stream_results=False).execute("select * from %s" % (_table,))
+    
+    cur = C_DBAPI.cursor()
+    # XXX this needs to be wrapped in a try: ... finally: C_DBAPI.close()
+    cur.execute("select * from %s" % (_table,))
     
   # 3) spool out the current state
   # ---------------------------------------------------
