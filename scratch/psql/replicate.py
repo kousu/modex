@@ -16,6 +16,16 @@ consider whether we can ditch SQLAlchemy; all this script does is issue simple S
  speaking DBAPI directly would be less heavy
  
 
+Concurrency bugs:
+ by adding artificial stalls (time.sleep()) to the script, you can demonstrate these to yourself
+ 1) writes that occur after "cur = " but before "changes = " go to the great bit bucket in the sky
+   solutions:
+    a. figure out some way to ask postgres for timeline location id (xid)s and ask it to replay from those certain poitns
+    b. Use an explicit table lock around acquiring the two cursors (NB: the changes cursor is not a SQL cursor)
+      - http://www.postgresql.org/docs/current/static/sql-lock.html / http://www.postgresql.org/docs/current/static/explicit-locking.html
+ ...i think that's the only one. We could get the changes cursor first, and then be in the equally difficult situation of having double-writes (so, a delete would show up as a nonexistent row and then a delete which would get confused, an insert would show up as a duplicated row, an update would show up as both -- or maybe it would show up as unable to be applied since the old row would). If a human was doing this work, these sorts of errors would be manageable, but for a computer this is equally difficult.
+  but since we make sure to (let the kernel) buffer changes for us simultaneously to the current state being written out, we should at least not miss anything in the gaps of writing out the current state.
+ 
 """
 
 import sqlalchemy
