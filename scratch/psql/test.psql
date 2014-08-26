@@ -6,25 +6,6 @@
 
 DROP TABLE IF EXISTS films CASCADE;
 CREATE TABLE films (name text, kind text, rating int);
-CREATE VIEW comedies AS select * from films where kind = 'Comedy'; --this from <http://www.postgresql.org/docs/current/static/sql-createview.html#SQL-CREATEVIEW-UPDATABLE-VIEWS>
-
-
--- is there a way to list all defined triggers? probably by querying the right internal pg_* table..
-
-CREATE TRIGGER watch_table_films
-  AFTER INSERT OR UPDATE OR DELETE
-  ON films
-  FOR EACH ROW
-  EXECUTE PROCEDURE watch_table();
-
--- this one is crippled because watching views doesn't help much
--- 1) triggers on a view only trigger if you actually said "UPDATE comedies SET ... WHERE ... ", not if you do "UPDATE films ..."
--- 2) triggers on a view *must* be "FOR EACH STATEMENT" unless you use "INSTEAD OF" but that would be something very different, then, and make using triggers and views and sql kind of pointless.
---CREATE TRIGGER watch_table_comedies
---  AFTER INSERT OR UPDATE OR DELETE
---  ON comedies
---  FOR EACH STATEMENT
---  EXECUTE PROCEDURE watch_table();
 
 \COPY films FROM './films.sql'; -- COPY runs on the server, Hence, the client commanding the server to load a file *must give a full path*, because it doesn't know where the server is. Conversely, \COPY runs on the client, which, if the server is remote, might be a large amount of data. See <https://wiki.postgresql.org/wiki/COPY>
 
@@ -33,6 +14,12 @@ INSERT INTO films VALUES ('The Mail Man', 'Documentary', 3);
 DELETE FROM films WHERE name = 'Sallu Sue' or name = 'Seventy Days';
 INSERT INTO films VALUES ('Superfly', 'Comedy', 5);
 UPDATE films SET name = 'Ugly Ducks' WHERE rating < 5;
+
+
+
+-- playing with views
+
+CREATE VIEW comedies AS select * from films where kind = 'Comedy'; --this from <http://www.postgresql.org/docs/current/static/sql-createview.html#SQL-CREATEVIEW-UPDATABLE-VIEWS>
 
 DROP MATERIALIZED VIEW IF EXISTS comedies_m;
 CREATE MATERIALIZED VIEW comedies_m AS

@@ -9,6 +9,26 @@
 
 CREATE OR REPLACE LANGUAGE plpython2u; --will fail if python has already been loaded, but the script will continue
 
+
+
+-- is there a way to list all defined triggers? probably by querying the right internal pg_* table..
+
+CREATE TRIGGER watch_table_films
+  AFTER INSERT OR UPDATE OR DELETE
+  ON films
+  FOR EACH ROW
+  EXECUTE PROCEDURE watch_table();
+
+-- this one is crippled because watching views doesn't help much
+-- 1) triggers on a view only trigger if you actually said "UPDATE comedies SET ... WHERE ... ", not if you do "UPDATE films ..."
+-- 2) triggers on a view *must* be "FOR EACH STATEMENT" unless you use "INSTEAD OF" but that would be something very different, then, and make using triggers and views and sql kind of pointless.
+--CREATE TRIGGER watch_table_comedies
+--  AFTER INSERT OR UPDATE OR DELETE
+--  ON comedies
+--  FOR EACH STATEMENT
+--  EXECUTE PROCEDURE watch_table();
+
+
 -- pl/ rules: each session has a correspond; so, every python script within this SQL script is run by the same interpreter (with the same globals, etc)
 --  however, *other* sessions appear to launch *other* interpreters, even though the python code those sessions might end up triggering was set elsewhere.
 -- the upshot of this, for us, is that we cannot rely on global variables or even global file descriptors.
