@@ -1,0 +1,76 @@
+<html>
+<head>
+<title> Dynamic Linegraph backed by PourOver [backed by websockets backed by replicate.py backed by a simulation] </title>
+</head>
+
+<body>
+
+
+</body>
+
+<script src="/assets/libs/underscore.js"></script>
+<script src="/assets/libs/pourover.js"></script>
+<script>
+/*
+ * plan:
+ *
+ *  1) get Pourover running so that I can play with it in the js console
+ *  2) get Pourover updating
+ *  3) write a script which launches one replicate_server.py per interesting table a websocket (websockify + socat ftw)  and get
+ *  3b) make sure multiple browsers are actually able to get the same stream of data
+ *  4) set a js trigger on pourover (does pourover allow this?? it must...) so that updates trigger something
+ *  5) write draw(data) 
+ *   -- xxx it would be better; though it's not clear to me that d3 does this properly; it seems d3 computes a diff between two complete datasets every timestep, which sort of flies in the face of all the work I've done to be able to only compute on edge-triggers
+ * 
+ * 
+ * later problems:  figure out what the inconsistencies that Postgres dislikes in SimulationLog are
+ *                  
+ */
+ 
+ 
+ // does PourOver.UI help us?? is it new?
+ 
+ var monsters = [{name: "sphinx", mythology: "greek", eyes: 2, sex: "f", hobbies: ["riddles","sitting","being a wonder"]},
+                {name: "hydra", mythology: "greek", eyes: 18, sex: "m", hobbies: ["coiling","terrorizing","growing"]},
+                {name: "huldra", mythology: "norse", eyes: 2, sex: "f", hobbies: ["luring","terrorizing"]},
+                {name: "cyclops", mythology: "greek", eyes: 1, sex: "m", hobbies: ["staring","terrorizing"]},
+                {name: "fenrir", mythology: "norse", eyes: 2, sex: "m", hobbies: ["growing","god-killing"]},
+                {name: "medusa",  mythology: "greek", eyes: 2, sex: "f", hobbies: ["coiling","staring"]}];
+
+  var collection = new PourOver.Collection(monsters);
+  
+  var mythology_filter = PourOver.makeExactFilter("mythology", ["greek","norse"]);
+  var gender_filter = PourOver.makeExactFilter("sex", ["m","f"]);  //<-- someone aint intersectional
+  
+  var hobbies_filter = PourOver.makeInclusionFilter("hobbies",["riddles",
+                                                             "sitting",
+                                                             "being a wonder",
+                                                             "coiling",
+                                                             "terrorizing",
+                                                             "growing",
+                                                             "luring",
+                                                             "staring",
+                                                             "god-killing"]);
+                                                             
+   collection.addFilters([mythology_filter, gender_filter, hobbies_filter]);
+   
+   var greek_monsters = collection.filters.mythology.getFn("greek");
+   var terror_monsters = collection.filters.hobbies.getFn("terrorizing");
+   
+   
+   
+   var female_view = new PourOver.View("default_view", collection);
+   
+   
+   collection.on("change", function() {
+     console.log("The females in mythology are now ", female_view);
+   })
+   
+   // collection.addItems triggers "change" but not "update"; a view triggers both. PourOver's notion of events is the dead simple one that other js libs like: a string plus maybe an extra js object (which is null if not given)
+   
+   
+   collection.addItems([{name: "norns", mythology: "norse", eyes: 6, sex: "f", hobbies: ["thinking","sitting","staring","prognosticating"]}])
+   console.log("All done");
+</script>
+
+</html>
