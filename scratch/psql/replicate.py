@@ -56,22 +56,23 @@ class Changes:
       
       # register ourselves with the source
       # XXX SQL injection here
-      with C.begin():  #very odd: something about the interaction of SQLAlchemy and stored procedures means that any writes the stored procedure does stay uncommitted forever. However, explicit commit commands (which the transaction created by C.begin() causes) 
-        r = C.execute("select * from my_pg_replicate_register('%s', '%s')" % (self._table, self._sock.getsockname()))
-        r = r.scalar()
-        print("register() result is: ", r)
-        
-        self._stream_id = r
+      # autocommit is explicitly turned on because SQLAlchemy assumes all selects are mutationless
+      # the docs expplicitly cover how to workaround this: http://docs.sqlalchemy.org/en/rel_0_9/core/connections.html#understanding-autocommit
+      r = C.execution_options(autocommit=True).execute("select * from my_pg_replicate_register('%s', '%s')" % (self._table, self._sock.getsockname()))
+      r = r.scalar()
+      print("register() result is: ", r)
+      
+      self._stream_id = r
       
       return self #oops!
     
     def __exit__(self, *args):
       # unregister ourselves
       # XXX SQL injection here
-      with C.begin():
-        r = C.execute("select * from my_pg_replicate_unregister('%s')" % (self._stream_id))
-        r = r.scalar()
-        print("unregister() result is: ", r)
+      
+      r = C.execution_options(autocommit=True).execute("select * from my_pg_replicate_unregister('%s')" % (self._stream_id))
+      r = r.scalar()
+      print("unregister() result is: ", r)
       
       # shutdown the socket
       os.unlink(self._sock.getsockname()) # necessary because we're using unix domain sockets
