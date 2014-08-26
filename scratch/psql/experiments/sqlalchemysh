@@ -1,0 +1,26 @@
+#!/usr/bin/env python
+
+import sqlalchemy
+
+DB_CONN_STRING = "postgresql:///postgres?host=127.0.0.1" #so i can debug via wireshark
+E = sqlalchemy.create_engine(DB_CONN_STRING) #TODO: deglobalize
+C = E.connect()
+
+# founddd da bug
+# found da bug
+# : if *this* order of execution happens
+# then postgres deadlocks on CREATE TRIGGER, presumably because that requires a table lock on films
+# but cur already has a lock on it
+#  .. how come other sqlalchemy commands don't cause this?
+C_DBAPI = E.raw_connection()
+cur = C_DBAPI.cursor()
+cur.execute("select * from %s" % ("films",))
+
+r = C.execution_options(autocommit=False).execute("select * from my_pg_replicate_register('films', '/tmp/b')")
+
+# is it *dead*locking?  
+# well, it's deadlocking in my code. it's not a deadlock inside of the DB (which postgres would resolve summarily for us)
+#  because my code won't continue until it registers(), but it can't register() while the thing is active...
+
+import IPython;
+IPython.embed()

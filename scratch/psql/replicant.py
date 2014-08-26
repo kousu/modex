@@ -333,7 +333,7 @@ class View(object):
 
 
 if __name__ == '__main__':
-    #view() (pretend view.py is a function which takes some args and then spits a stream back; that's actually jsut waht it does niggah) 
+    
     #def view([columns], table, where=None)
     #  - zeroth step is to parse the initial lines from the client, which contain the query: (columns, table, where)
     #  - first step is it tells the query to the DB ("select [columns] from table where ...")
