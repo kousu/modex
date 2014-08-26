@@ -44,7 +44,7 @@ class Changes:
       
       # register ourselves with the source
       # XXX SQL injection here
-      r = C.execute("select * from my_pg_replicate_register('%s', '%s')" % (self._sock.getsockname(), self._table))
+      r = C.execute("select * from my_pg_replicate_register('%s', '%s')" % (self._table, self._sock.getsockname()))
       r = r.scalar()
       print("register() result is: ", r)
       

@@ -9,8 +9,8 @@ CREATE OR REPLACE LANGUAGE plpython2u;
 
 -- DESIGN: abuse tables and triggers to construct event queues 
 -- 
---  init_replicate(_table) sets watch() as a trigger on the given _table, if it is not already there
---   watch() formats changes as HRDJ (hobo-rowdelta json) format and writes to my_pg_replicate
+--  replicate_register(_table) sets watch_table() as a trigger on the given _table, if it is not already there
+--   watch_table() formats changes as HRDJ (hobo-rowdelta json) format and writes to my_pg_replicate
 --   my_pg_replicate is used as a queue; broadcast() is set as an INSTEAD OF trigger on it, stopping any data actually getting written to it; 
 --   instead, broadcast() takes the HRDJ it received indirectly from watch() and copies it to all active clients; 
 --  
@@ -19,25 +19,48 @@ CREATE OR REPLACE LANGUAGE plpython2u;
 --   register(replicate_stream_id, listen_addr)
 --   which simply inserts that tuple into the table my_pg_replicate_{..??}
 
+-- TODO: look into if it's worth it to use Skype's postgres event queue library instead of rolling our own
+
 -- XXX replicate_stream_id is unclear at the moment; I know I need something like it to distinguish which feed of changes is being fed (at the moment, the only feeds are tables, but in the future we want to support distinct views, in order to be able to do /filtered/ replication).
 
 --  
 -- Much of the effort to go out of the way to use the DB itself as storage is because, presumably for security reasons, postgres runs multiple python processes (presumably the same is true for perl)--one per *client connection*. There is no way to just create global python objects and share them across all users. In particular, there's no way to create a pure python queue object for each client to listen on. However, that's what sockets are good for; plus, sockets (or, equivalently, a FIFO or a file) come with blocking built in for free (other options would require polling).
 -- This restriction's probably a good thing. It also takes the complication of python-level concurrency out of the picture.
 
+select 'installing my_pg_replicate';
 DROP TABLE IF EXISTS my_pg_replicate;
-CREATE TABLE my_pg_replicate (event json);
+CREATE TABLE my_pg_replicate (_table text, event json);
 
+select 'installing my_pg_replicate_broadcast';
 CREATE OR REPLACE FUNCTION my_pg_replicate_broadcast() RETURNS trigger AS
 $$
   """
   this trigger stops anything actually getting into the table
   """
+  import socket
+  
+  # get "function arguments"
+  table, event = TD["new"]["_table"], TD["new"]["event"]
+  
   # TODO...
-  print("[my_pg_replicate_broadcast()]: broadcasting ", TD["new"])
+  print("[my_pg_replicate_broadcast()]: broadcasting ", event, "on", table)
+  
+  plant = plpy.prepare("select * from my_pg_replicate_clients where _table = $1", ['text'])
+  clients = plpy.execute(plant, table)
+  print("\to")
+  for o in clients:
+    print(o)
+    sock = socket.socket(socket.AF_UNIX, socket.SOCK_DGRAM);
+    sock.connect(o['addr'])
+    sock.send(event.encode("ascii"))
+    sock.shutdown()
+    
+  
+  
   return "SKIP"
 $$ LANGUAGE plpython2u;
 
+select 'installing my_pg_replicate_trigger';
 CREATE TRIGGER my_pg_replicate_trigger
   BEFORE INSERT  -- We only catch INSERT here, because we mean to
   ON my_pg_replicate -- maintain the invariant that this table is empty
@@ -46,17 +69,66 @@ CREATE TRIGGER my_pg_replicate_trigger
 
 
 
+select 'installing watch_table';
+CREATE OR REPLACE FUNCTION watch_table() RETURNS trigger AS $$ 
+  """
+   This trigger formats events on tables into Hobo Replication Delta JSON (HRDJ)
+    and pushes it up to my_pg_replicate
+  """
+  # triggers do not have arguments passed
+  # instead, pl/python passes the trigger data *and* any arguments given when you define the trigger in sub-members of the global variable TD
+  
+  import json
+  import errno
+  
+  def trigger_to_hrdj(TD):
+    "reformat an event in pl/python TD to HRDJ (hobo-replication-delta-json) format"      
+    
+    # HRDJ Format
+    # --------------------------
+    # a json object with a single "new" for an insert, a single "old" for a deletion, and both an "old" and a "new" for; beware that this makes the type of change *implicit*; it has the added bonus that it is reallllly simple to consume, since consumers can just look for an "old" tag, act on it, then for a "new" tag and act on that (but have the option of being more clever)
+    # TODO: define some kind of remote primary key semantics and, for tables that have SQL primary keys, compress 'old' to only contain the PK, and in the case of an update, compress "new" to only contain the changed fields
+    
+    if TD["event"] == "INSERT":
+      payload = {"+": TD["new"]}
+    elif TD["event"] == "UPDATE":
+      payload = {"-": TD["old"], "+": TD["new"]}
+    elif TD["event"] == "DELETE":
+      payload = {"-": TD["old"]}
+    payload = json.dumps(payload)
+    return payload
+  
+  print("watch_table() is sending ", TD)
+  plant = plpy.prepare("insert into my_pg_replicate values ($1, $2)", ['text','json'])
+  plpy.execute(plant, [TD["table_name"], trigger_to_hrdj(TD)])
+  
+$$ language plpython2u;
+
+
+
+
 -- "-_table" should eventually become "stream_id" with a spare table mapping stream_id to (table, columns, where)
+select 'installing my_pg_replicate_clients';
 DROP TABLE IF EXISTS my_pg_replicate_clients;
 CREATE TABLE my_pg_replicate_clients (stream_id text PRIMARY KEY, addr text, _table text);
 
+
+
+select 'installing my_pg_replicate_triggers';
 -- a simple data structure to refcount how many times each trigger is being listened to (ie how many clients are replicating each table)
 --  refcounting is simple to implement; when the uses count drops to zero the trigger is deleted
 DROP TABLE IF EXISTS my_pg_replicate_triggers;
 CREATE TABLE my_pg_replicate_triggers (_table text PRIMARY KEY, trigger text, uses int);
 
+
+
+
+
+
+
+select 'installing my_pg_replicate_register';
 --TODO: this function is simple enough that it could be done in plpgsql, which should be faster
-CREATE OR REPLACE FUNCTION my_pg_replicate_register(addr text, _table text) RETURNS text AS
+CREATE OR REPLACE FUNCTION my_pg_replicate_register(_table text, addr text) RETURNS text AS
 $$
   # returns the stream id for unregistering (& etc)
   
@@ -90,6 +162,9 @@ $$
   return stream_id; 
 $$ LANGUAGE plpython2u;
 
+
+
+select 'installing my_pg_replicate_unregister';
 CREATE OR REPLACE FUNCTION my_pg_replicate_unregister(stream_id text) RETURNS bool AS
 $$
   plant = plpy.prepare("delete from my_pg_replicate_clients where stream_id = $1", ["text"])
