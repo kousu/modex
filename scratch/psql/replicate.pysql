@@ -57,22 +57,19 @@ $$
   plant = plpy.prepare("select * from my_pg_replicate_clients where _table = $1", ['text'])
   clients = plpy.execute(plant, [table])
   print("\tto")
+  sock = socket.socket(socket.AF_UNIX, socket.SOCK_DGRAM);
   for o in clients:
     print(o)
     try:
-      sock = socket.socket(socket.AF_UNIX, socket.SOCK_DGRAM);
-      sock.connect(o['addr'])
       event = event.encode("utf-8")
       
-      print("\twriting |%s| to %s" % (event, sock.getsockname()))
-      sock.send(event)
-      print("\tshutign doqwn socket thing")
-      
-      sock.close()
-      print()
+      plpy.debug("\twriting |%s| to %s" % (event, sock.getsockname()))
+      sock.sendto(event, o['addr'])
     except Exception as e:
       warn("unable to write to client socket %s: %s" % (o['addr'], e))
       pass
+  
+  sock.close()
   print("</broadcast>")
   return "SKIP"
 $$ LANGUAGE plpython2u;
