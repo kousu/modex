@@ -27,6 +27,13 @@ CREATE OR REPLACE LANGUAGE plpython2u;
 -- Much of the effort to go out of the way to use the DB itself as storage is because, presumably for security reasons, postgres runs multiple python processes (presumably the same is true for perl)--one per *client connection*. There is no way to just create global python objects and share them across all users. In particular, there's no way to create a pure python queue object for each client to listen on. However, that's what sockets are good for; plus, sockets (or, equivalently, a FIFO or a file) come with blocking built in for free (other options would require polling).
 -- This restriction's probably a good thing. It also takes the complication of python-level concurrency out of the picture.
 
+
+-- BUG: reloading this script doesn't destroy watch_table triggers (though DROP TABLE CASCADE does)
+--  possible solutions:
+--      use a static naming scheme + CREATE OR REPLACE
+--      read my_pg_replicate_clients at load time
+
+
 select 'installing my_pg_replicate';
 DROP TABLE IF EXISTS my_pg_replicate;
 CREATE TABLE my_pg_replicate (_table text, event json);
@@ -43,20 +50,25 @@ $$
   table, event = TD["new"]["_table"], TD["new"]["event"]
   
   # TODO...
+  print("<broadcast>")
   print("[my_pg_replicate_broadcast()]: broadcasting ", event, "on", table)
   
   plant = plpy.prepare("select * from my_pg_replicate_clients where _table = $1", ['text'])
-  clients = plpy.execute(plant, table)
-  print("\to")
+  clients = plpy.execute(plant, [table])
+  print("\tto")
   for o in clients:
     print(o)
     sock = socket.socket(socket.AF_UNIX, socket.SOCK_DGRAM);
     sock.connect(o['addr'])
-    sock.send(event.encode("ascii"))
-    sock.shutdown()
+    event = event.encode("ascii")
     
-  
-  
+    print("\twriting |%s| to %s" % (event, sock.getsockname()))
+    sock.send(event)
+    print("\tshutign doqwn socket thing")
+    
+    sock.close()
+    print()
+  print("</broadcast>")
   return "SKIP"
 $$ LANGUAGE plpython2u;
 
@@ -156,8 +168,8 @@ $$
     EXECUTE PROCEDURE watch_table()
     """ % (name, _table))
     
-    # record that the trigger is installed
-    plpy.execute("insert into my_pg_replicate_triggers values ('%s', '%s', 1)" % (_table, name))
+    # record that the trigger is installed, initializing refcount to 1
+    plpy.execute("insert into my_pg_replicate_triggers values ('%s', '%s', %d)" % (_table, name, 1))
   
   return stream_id; 
 $$ LANGUAGE plpython2u;

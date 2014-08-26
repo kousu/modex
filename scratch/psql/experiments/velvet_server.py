@@ -1,15 +1,20 @@
 # -*- coding: utf-8 -*-
 # from http://www.velvetcache.org/2010/06/14/python-unix-sockets
+
+import sys
+
 import socket
 import os, os.path
 import time
+
+addr = sys.argv[1]
+
+if os.path.exists( addr ):
+  os.remove( addr )
  
-if os.path.exists( "/tmp/python_unix_sockets_example" ):
-  os.remove( "/tmp/python_unix_sockets_example" )
- 
-print ("Opening socket...")
+print ("Opening socket", addr)
 server = socket.socket( socket.AF_UNIX, socket.SOCK_DGRAM )
-server.bind("/tmp/python_unix_sockets_example")
+server.bind(addr)
  
 print("Listening...")
 while True:
@@ -25,5 +30,5 @@ while True:
 print("-" * 20)
 print("Shutting down...")
 server.close()
-os.remove( "/tmp/python_unix_sockets_example" )
+os.remove( addr )
 print("Done")

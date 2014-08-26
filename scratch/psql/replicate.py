@@ -5,6 +5,9 @@
 
 # depends: watch.pysql and replicate.pysql are loaded into postgres
 
+
+# irritant: select() blocks ctrl-c
+
 import sqlalchemy
 
 
@@ -56,8 +59,7 @@ class Changes:
       # unregister ourselves
       # XXX SQL injection here
       r = C.execute("select * from my_pg_replicate_unregister('%s')" % (self._stream_id))
-      r = r[0]
-      r = r[r.keys()[0]]
+      r = r.scalar()
       print("unregister() result is: ", r)
       
       # shutdown the socket
@@ -68,7 +70,6 @@ class Changes:
       return self
     
     def __next__(self):
-      print("Changes.next()")
       fread, fwrite, ferr = select.select([self._sock], [], [self._sock])  #block until some data is available
       if ferr:
         pass #XXX
@@ -104,36 +105,26 @@ def replicate(_table):
   # 3) spool out the current state
   # ---------------------------------------------------
     for row in cur:
-      print("row=",row)
-      row = dict(zip(cur.keys(), row))
-      delta = {"+": row} #convert row to our made up delta format
+      row = dict(zip(cur.keys(), row))  #coerce the SQLAlchemy row format to a dictionary
+      delta = {"+": row} #convert row to our made up delta format; the existing rows can all be considered inserts
       delta = json.dumps(delta) #and then to JSON
       yield delta
-  
+    
+    
   # 4) spin, spooling out the change stream
   # ---------------------------------------------------
     for delta in changes:
       # we assume that the source (watch_table()) has already jsonified things for us; THIS MIGHT BE A MISTAKE
       yield delta
-    # NOTREACHED (unless something crashes, the changes feed should be infinite)
+    # NOTREACHED (unless something crashes, the changes feed should be infinite, and a crash would crash before this line anyway)
     
     
 if __name__ == '__main__':
     import sys
     table = sys.argv[1]
-    print("-"*80)
-    print("why" ,table)
-    print("-"*80)
+    
     for delta in replicate(table):
         print(delta)
     
-    print("-"*80)
-    tttttttf(table)
-    print("-"*80)
-    hobo(table)
-    print("-"*80)
-    twolevelsofhate("eight", "sacnehz")
-    print("-"*80)
-    print("NOTREACHED")
+    # NOTREACHED
     
-    # irritant: select() blocks ctrl-c
