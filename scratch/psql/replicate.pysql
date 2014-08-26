@@ -45,6 +45,7 @@ $$
   this trigger stops anything actually getting into the table
   """
   import socket
+  from warnings import warn
   
   # get "function arguments"
   table, event = TD["new"]["_table"], TD["new"]["event"]
@@ -58,16 +59,20 @@ $$
   print("\tto")
   for o in clients:
     print(o)
-    sock = socket.socket(socket.AF_UNIX, socket.SOCK_DGRAM);
-    sock.connect(o['addr'])
-    event = event.encode("ascii")
-    
-    print("\twriting |%s| to %s" % (event, sock.getsockname()))
-    sock.send(event)
-    print("\tshutign doqwn socket thing")
-    
-    sock.close()
-    print()
+    try:
+      sock = socket.socket(socket.AF_UNIX, socket.SOCK_DGRAM);
+      sock.connect(o['addr'])
+      event = event.encode("ascii")
+      
+      print("\twriting |%s| to %s" % (event, sock.getsockname()))
+      sock.send(event)
+      print("\tshutign doqwn socket thing")
+      
+      sock.close()
+      print()
+    except Exception as e:
+      warn("unable to write to client socket %s: %s" % (o['addr'], e))
+      pass
   print("</broadcast>")
   return "SKIP"
 $$ LANGUAGE plpython2u;
@@ -127,15 +132,10 @@ CREATE TABLE my_pg_replicate_clients (stream_id text PRIMARY KEY, addr text, _ta
 
 
 select 'installing my_pg_replicate_triggers';
--- a simple data structure to refcount how many times each trigger is being listened to (ie how many clients are replicating each table)
---  refcounting is simple to implement; when the uses count drops to zero the trigger is deleted
+-- a simple data structure to refcount how active clients are watching any table
+--  when the number of clients drop to zero, we can remove the parasitic trigger
 DROP TABLE IF EXISTS my_pg_replicate_triggers;
-CREATE TABLE my_pg_replicate_triggers (_table text PRIMARY KEY, trigger text, uses int);
-
-
-
-
-
+CREATE TABLE my_pg_replicate_triggers (_table text PRIMARY KEY, uses int);
 
 
 select 'installing my_pg_replicate_register';
@@ -159,17 +159,20 @@ $$
     plpy.execute("update my_pg_replicate_triggers set uses = uses + 1 where _table = '%s'" % (_table,))
   else:
     # table is currently unwatched; generate a random name and install the trigger
-    name = "watch_" + uuid.uuid4().hex
+    # XXX edge case: if we drop the replicate_triggers table while triggers are still active  (eg reloading this file) it's possible that the trigger will already be installed
+    #  Since the number of times this happens should be small (famous last words..), it won't hurt to just recreate it every time
+    plpy.execute("DROP TRIGGER IF EXISTS watch_table on %s" % (_table,))
     plpy.execute(
-    """CREATE TRIGGER %s
+    """CREATE TRIGGER watch_table
     AFTER INSERT OR UPDATE OR DELETE
     ON %s
     FOR EACH ROW
     EXECUTE PROCEDURE watch_table()
-    """ % (name, _table))
+    """ % (_table))
     
     # record that the trigger is installed, initializing refcount to 1
-    plpy.execute("insert into my_pg_replicate_triggers values ('%s', '%s', %d)" % (_table, name, 1))
+    plant = plpy.prepare("insert into my_pg_replicate_triggers values ($1, $2)", ['text', 'int'])
+    plpy.execute(plant, [_table, 1])
   
   return stream_id; 
 $$ LANGUAGE plpython2u;
@@ -183,5 +186,6 @@ $$
   plpy.execute(plant, [stream_id])
   return True; #TODO: check if the query did anything (?? does execute() return a list of affected rows or something we can look at?)
   
+  # TODO:
   # this function should also uninstall triggers if there are no listeners for _table left
 $$ LANGUAGE plpython2u;
