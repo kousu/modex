@@ -12,8 +12,9 @@ TODO:
 clean up the sql injections
 
 
+consider whether we can ditch SQLAlchemy; all this script does is issue simple SQL commands.
+ speaking DBAPI directly would be less heavy
  
-
 
 """
 
@@ -99,9 +100,15 @@ def replicate(_table):
   #print("the plan is", plan)
   #cur = plpy.cursor(plan, [_table]);
   # stream_results is turned on for this query so that this line takes as little time as possible
-  cur = C.execute("select * from %s" % (_table,))
-  # .execution_options(stream_results=True)
   
+  C_DBAPI = E.raw_connection()
+  #cur = C.execution_options(stream_results=False).execute("select * from %s" % (_table,))
+  
+  cur = C_DBAPI.cursor()
+  # XXX this needs to be wrapped in a try: ... finally: C_DBAPI.close()
+  cur.execute("select * from %s" % (_table,))
+  
+  # 
   
   
   # XXX we might need to construct the Changes stream first
@@ -121,8 +128,11 @@ def replicate(_table):
     
   # 3) spool out the current state
   # ---------------------------------------------------
+    #import IPython; IPython.embed()
+    keys = [col.name for col in cur.description] #low level SQLAlchemy (psycopg2, in this case)
+    #keys = cur.keys() #SQLAlchemy
     for row in cur:
-      row = dict(zip(cur.keys(), row))  #coerce the SQLAlchemy row format to a dictionary
+      row = dict(zip(keys, row))  #coerce the SQLAlchemy row format to a dictionary
       delta = {"+": row} #convert row to our made up delta format; the existing rows can all be considered inserts
       delta = json.dumps(delta) #and then to JSON
       yield delta
