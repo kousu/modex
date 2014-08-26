@@ -36,11 +36,14 @@ import json
 import os
 
 
+import logging
+
+logging.getLogger().setLevel(logging.DEBUG)
+
 DB_SOCKET = "data" #path to folder containing the postgres socket
 DB_SOCKET = os.path.abspath(DB_SOCKET) #postgres can't handle relative paths
 DB_CONN_STRING = "postgresql:///postgres?host=%s" % (DB_SOCKET,)
-E = sqlalchemy.create_engine(DB_CONN_STRING)
-C = E.connect()
+E = sqlalchemy.create_engine(DB_CONN_STRING) #TODO: deglobalize
 
 #import IPython; IPython.embed()
 
@@ -63,15 +66,17 @@ class Changes:
       # set up our listening socket
       self._sock = socket.socket(socket.AF_UNIX, socket.SOCK_DGRAM)
       self._sock.bind(tempfile.mktemp())
-      print("listening for changes to %s on %s" % (self._table, self._sock.getsockname()))
+      logging.info("listening for changes to %s on %s", self._table, self._sock.getsockname())
       
       # register ourselves with the source
       # XXX SQL injection here
       # autocommit is explicitly turned on because SQLAlchemy assumes all selects are mutationless
       # the docs expplicitly cover how to workaround this: http://docs.sqlalchemy.org/en/rel_0_9/core/connections.html#understanding-autocommit
+      C = E.connect()
       r = C.execution_options(autocommit=True).execute("select * from my_pg_replicate_register('%s', '%s')" % (self._table, self._sock.getsockname()))
       r = r.scalar()
-      print("register() result is: ", r)
+      logging.debug("register() result is: %s", r)
+      C.close()
       
       self._stream_id = r
       
@@ -80,10 +85,11 @@ class Changes:
     def __exit__(self, *args):
       # unregister ourselves
       # XXX SQL injection here
-      
+      C = E.connect()
       r = C.execution_options(autocommit=True).execute("select * from my_pg_replicate_unregister('%s')" % (self._stream_id))
       r = r.scalar()
-      print("unregister() result is: ", r)
+      logging.debug("unregister() result is: %s", r)
+      C.close()
       
       # shutdown the socket
       os.unlink(self._sock.getsockname()) # necessary because we're using unix domain sockets
@@ -134,6 +140,7 @@ def replicate(_table):
   # but postgres doesn't seem(?) to provide a way to extract; it just uses timelines to make sure every session sees a consistent set of data.
   # this is sort of tricky
   # I need to say somethign like
+  
   with Changes(_table) as changes: #<-- use with to get the benefits of RAII, since Changes has a listening endpoint to worry about cleaning up
     
   # 3) spool out the current state
@@ -148,8 +155,9 @@ def replicate(_table):
       yield delta
     # do I need to explicitly close the cursor?
   
-    C.close() # we don't need to talk directly to the DB anymore at this point; it will feed us changes out-of-band via our socket
-    
+    cur.close()
+    C_DBAPI.close()
+  
   # 4) spin, spooling out the change stream
   # ---------------------------------------------------
     for delta in changes:
