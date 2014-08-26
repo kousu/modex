@@ -62,7 +62,7 @@ $$
     try:
       sock = socket.socket(socket.AF_UNIX, socket.SOCK_DGRAM);
       sock.connect(o['addr'])
-      event = event.encode("ascii")
+      event = event.encode("utf-8")
       
       print("\twriting |%s| to %s" % (event, sock.getsockname()))
       sock.send(event)
@@ -127,7 +127,7 @@ $$ language plpython2u;
 -- "-_table" should eventually become "stream_id" with a spare table mapping stream_id to (table, columns, where)
 select 'installing my_pg_replicate_clients';
 DROP TABLE IF EXISTS my_pg_replicate_clients;
-CREATE TABLE my_pg_replicate_clients (stream_id text PRIMARY KEY, addr text, _table text);
+CREATE TABLE my_pg_replicate_clients (stream_id text PRIMARY KEY, addr text UNIQUE, _table text);
 
 
 

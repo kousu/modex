@@ -5,8 +5,17 @@
 
 # depends: watch.pysql and replicate.pysql are loaded into postgres
 
+"""
+TODO:
+ irritant: select() blocks ctrl-c, because it's an I/O wait (quick fix: give a long timeout on select and spin it in a polling loop)
 
-# irritant: select() blocks ctrl-c
+clean up the sql injections
+
+
+ 
+
+
+"""
 
 import sqlalchemy
 
@@ -47,20 +56,22 @@ class Changes:
       
       # register ourselves with the source
       # XXX SQL injection here
-      r = C.execute("select * from my_pg_replicate_register('%s', '%s')" % (self._table, self._sock.getsockname()))
-      r = r.scalar()
-      print("register() result is: ", r)
-      
-      self._stream_id = r
+      with C.begin():  #very odd: something about the interaction of SQLAlchemy and stored procedures means that any writes the stored procedure does stay uncommitted forever. However, explicit commit commands (which the transaction created by C.begin() causes) 
+        r = C.execute("select * from my_pg_replicate_register('%s', '%s')" % (self._table, self._sock.getsockname()))
+        r = r.scalar()
+        print("register() result is: ", r)
+        
+        self._stream_id = r
       
       return self #oops!
     
     def __exit__(self, *args):
       # unregister ourselves
       # XXX SQL injection here
-      r = C.execute("select * from my_pg_replicate_unregister('%s')" % (self._stream_id))
-      r = r.scalar()
-      print("unregister() result is: ", r)
+      with C.begin():
+        r = C.execute("select * from my_pg_replicate_unregister('%s')" % (self._stream_id))
+        r = r.scalar()
+        print("unregister() result is: ", r)
       
       # shutdown the socket
       os.unlink(self._sock.getsockname()) # necessary because we're using unix domain sockets
@@ -74,7 +85,9 @@ class Changes:
       if ferr:
         pass #XXX
       else:
-        return self._sock.recv(Changes.MTU)
+        pkt = self._sock.recv(Changes.MTU)
+        pkt = pkt.decode('utf-8')
+        return pkt
     
     next = __next__ #py2 compatibility
   
@@ -85,7 +98,10 @@ def replicate(_table):
   #print("the plan is", plan)
   #cur = plpy.cursor(plan, [_table]);
   # stream_results is turned on for this query so that this line takes as little time as possible
-  cur = C.execution_options(stream_results=True).execute("select * from %s" % (_table,))
+  cur = C.execute("select * from %s" % (_table,))
+  # .execution_options(stream_results=True)
+  
+  
   
   # XXX we might need to construct the Changes stream first
   #  If we do have concurrency problems, doing that at least guarantees that we don't miss any changes, though we might end up with duplicate rows or trying to delete nonexistent rows
@@ -109,7 +125,9 @@ def replicate(_table):
       delta = {"+": row} #convert row to our made up delta format; the existing rows can all be considered inserts
       delta = json.dumps(delta) #and then to JSON
       yield delta
-    
+    # do I need to explicitly close the cursor?
+  
+    C.close() # we don't need to talk directly to the DB anymore at this point; it will feed us changes out-of-band via our socket
     
   # 4) spin, spooling out the change stream
   # ---------------------------------------------------
