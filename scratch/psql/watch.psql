@@ -1,0 +1,128 @@
+-- watch.psql
+-- This postgres + pl/python2 script demonstrates watching changes to a table
+-- This could be probably done in plpgsql, but I know python better, and it comes with serialization (json, msgpack, pickle) available easily.
+-- these tips are from
+--  http://www.postgresql.org/message-id/1405660725952-5811931.post@n5.nabble.com and
+--  http://www.postgresql.org/message-id/1405703990457-5811982.post@n5.nabble.com
+-- The reason I'm not using "Logical Decoding" <http://www.postgresql.org/docs/devel/static/logicaldecoding-example.html> is because it's still in devel---not even Arch Linux, usually full of bleeding edge code, has this feature yet. Plus it requires fiddling with the .conf file, same as replicant.py does, but in an incompatible way.
+
+
+CREATE OR REPLACE LANGUAGE plpython2u; --will fail if python has already been loaded, but the script will continue
+
+
+
+-- is there a way to list all defined triggers? probably by querying the right internal pg_* table..
+
+CREATE TRIGGER watch_table_films
+  AFTER INSERT OR UPDATE OR DELETE
+  ON films
+  FOR EACH ROW
+  EXECUTE PROCEDURE watch_table();
+
+-- this one is crippled because watching views doesn't help much
+-- 1) triggers on a view only trigger if you actually said "UPDATE comedies SET ... WHERE ... ", not if you do "UPDATE films ..."
+-- 2) triggers on a view *must* be "FOR EACH STATEMENT" unless you use "INSTEAD OF" but that would be something very different, then, and make using triggers and views and sql kind of pointless.
+--CREATE TRIGGER watch_table_comedies
+--  AFTER INSERT OR UPDATE OR DELETE
+--  ON comedies
+--  FOR EACH STATEMENT
+--  EXECUTE PROCEDURE watch_table();
+
+
+-- pl/ rules: each session has a correspond; so, every python script within this SQL script is run by the same interpreter (with the same globals, etc)
+--  however, *other* sessions appear to launch *other* interpreters, even though the python code those sessions might end up triggering was set elsewhere.
+-- the upshot of this, for us, is that we cannot rely on global variables or even global file descriptors.
+-- http://www.postgresql.org/docs/9.3/static/plpython-sharing.html claims "Each function gets its own execution environment" but there's not total separation:
+
+
+
+--'RETURNS trigger' is postgres speak for "this doesn't actually return a value but it's meant to be used as a trigger callback"
+-- the main reference for this function is http://www.postgresql.org/docs/9.3/static/plpython-trigger.html
+CREATE OR REPLACE FUNCTION watch_table() RETURNS trigger AS $$ 
+  # triggers do not have arguments passed
+  # instead, pl/python passes the trigger data *and* any arguments given when you define the trigger in sub-members of the global variable TD
+  
+  import json
+  import errno
+  
+  def trigger_to_hrdj(TD):
+    "reformat an event in pl/python TD to HRDJ (hobo-replication-delta-json) format"      
+    if TD["event"] == "INSERT":
+      payload = {"+": TD["new"]}
+    elif TD["event"] == "UPDATE":
+      payload = {"-": TD["old"], "+": TD["new"]}
+    elif TD["event"] == "DELETE":
+      payload = {"-": TD["old"]}
+    payload = json.dumps(payload)
+    return payload
+  
+  
+  table_name = TD["table_name"]
+  
+  FIFO = "_changes_%s" % (table_name,)
+  import os
+  FIFO = os.path.abspath(FIFO)
+  if "FIFO" not in SD:
+    #this is our first time running in this instance of the python interpreter:
+    # run initializations
+    
+    #PL/Python is really meant for small one-off tasks, mostly. Most data should probably just be stuffed straight into the database.
+    # however, things like file descriptors don't work so well like that
+    # for these things, we need to use the facilities PL/python provides: http://www.postgresql.org/docs/9.3/static/plpython-sharing.html
+    #  summary is: SD stands for "static data" and behaves like static locals in C (they must have some kind of trap table kicking around that switches in values of SD when the appropriate function is called).
+    #              GD stands for "global data" and is the same everywhere
+    #        both begin as empty dictionaries
+    #   note also that it seems that one python interpreter is invoked ~per client connection~; not per-statement (which would be too fine) nor per
+    import sys, os
+    
+    if os.path.exists(FIFO):
+      #TODO: check that, if it exists, it's a FIFO and we have perms on it
+      print("...it exists??", FIFO)
+      print
+      print(os.path.exists(FIFO))
+      pass      
+    else:
+      print("attempting to construct fifo", FIFO)
+      try:
+        os.mkfifo(FIFO)
+      except Exception as e:
+        import traceback
+        traceback.print_exc()
+        print("couldn't make %s. ignoring" % FIFO)
+        pass
+    print('-'*30)
+    # XXX problem: a nonblocking pipe cannot be opened until there is a reader to read it; the reader may go away after a moment and everything will be peachy, but startup is hard
+    # ..hm.
+    
+    try:
+      fd = os.open(FIFO, os.O_WRONLY | os.O_NONBLOCK) #O_NONBLOCK is key; otherwise, updates will *hang* the postgres process until someone open()s the FIFO
+      FIFO = os.fdopen(fd, "w", 0) #OVERWRITES; buffering=1 means line buffered, and this is important since the default is to buffer at 4K which is too slow for our real-time purpose
+      SD["FIFO"] = FIFO
+      print "SD is now", SD
+    except OSError as err:
+      if err.errno == errno.ENXIO: #no one is listening; that's okay, just shortcircuit for now.
+        return
+      else:
+        raise
+  
+  FIFO = SD["FIFO"] #retrieve the FIFO from the static data, if this is our second (or even first) time around
+  
+  # ... when there's no consumers, shouldn't the prints get EPIPE?
+  #print TD["table_name"], #<-- no newline
+  print "Got triggered:", TD #, "locals=",locals(),"globals=",globals()
+  # the output format here is:
+  # a json object with a single "new" for an insert, a single "old" for a deletion, and both an "old" and a "new" for; beware that this makes the type of change *implicit*; it has the added bonus that it is reallllly simple to consume, since consumers can just look for an "old" tag, act on it, then for a "new" tag and act on that (but have the option of being more clever)
+  # TODO: define some kind of remote primary key semantics and, for tables that have SQL primary keys, compress 'old' to only contain the PK, and in the case of an update, compress "new" to only contain the changed fields
+  payload = trigger_to_hrdj(TD)
+  
+  try:
+      print >>FIFO, payload   #we could also use (multicast?) UDP here (and let the OS handle it) instead of having to check for ENXIO. additionally, UDP allows multiple processes on one machine to receive the same stream.
+  except IOError as err:
+    # solve the race condition where if the listener dies *during* a single session (remember: the stored procedure is stored once per server, but actually run once per client)
+    #  ..it might be more reliable (but less efficient?? need to test this) to just reopen on every single call (but even then, we have to handle what happens if the thing dies after open() but before write())
+    if err.errno == errno.EPIPE: #no one is listening; that's okay...
+      pass
+    else:
+      raise
+$$ language plpython2u;
+

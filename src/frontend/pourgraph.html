@@ -1,0 +1,110 @@
+<html>
+<head>
+<title> Dynamic Linegraph backed by PourOver [backed by websockets backed by replicate.py backed by a simulation] </title>
+</head>
+
+<body>
+
+
+</body>
+
+<script src="/assets/libs/underscore.js"></script>
+<script src="/assets/libs/pourover.js"></script>
+<script>
+/*
+ * plan:
+ *
+ *  1) [x] get Pourover running so that I can play with it in the js console
+ *  2) [x] get Pourover updating
+ *  3) write a script which launches one replicate_server.py per interesting table a websocket (websockify + socat ftw)  and get
+ *  3b) make sure multiple browsers are actually able to get the same stream of data
+ *  4) set a js trigger on pourover (does pourover allow this?? it must...) so that updates trigger something
+ *  5) write draw(data) 
+ *   -- xxx it would be better; though it's not clear to me that d3 does this properly; it seems d3 computes a diff between two complete datasets every timestep, which sort of flies in the face of all the work I've done to be able to only compute on edge-triggers
+ * 
+ * 
+ * later problems:  figure out what the inconsistencies that Postgres dislikes in SimulationLog are
+ *     
+ *
+ *  so... is each table being replicated a different collection? probably!
+ *   first draft probably only needs one table, anyway.             
+ */
+ 
+ 
+ // does PourOver.UI help us?? is it new?
+ 
+ var monsters = [{name: "sphinx", mythology: "greek", eyes: 2, sex: "f", hobbies: ["riddles","sitting","being a wonder"]},
+                {name: "hydra", mythology: "greek", eyes: 18, sex: "m", hobbies: ["coiling","terrorizing","growing"]},
+                {name: "huldra", mythology: "norse", eyes: 2, sex: "f", hobbies: ["luring","terrorizing"]},
+                {name: "cyclops", mythology: "greek", eyes: 1, sex: "m", hobbies: ["staring","terrorizing"]},
+                {name: "fenrir", mythology: "norse", eyes: 2, sex: "m", hobbies: ["growing","god-killing"]},
+                {name: "medusa",  mythology: "greek", eyes: 2, sex: "f", hobbies: ["coiling","staring"]}];
+
+  var collection = new PourOver.Collection(monsters);
+  
+  var mythology_filter = PourOver.makeExactFilter("mythology", ["greek","norse"]);
+  var gender_filter = PourOver.makeExactFilter("sex", ["m","f"]);  //<-- someone aint intersectional
+  
+  var hobbies_filter = PourOver.makeInclusionFilter("hobbies",["riddles",
+                                                             "sitting",
+                                                             "being a wonder",
+                                                             "coiling",
+                                                             "terrorizing",
+                                                             "growing",
+                                                             "luring",
+                                                             "staring",
+                                                             "god-killing"]);
+                                                             
+   collection.addFilters([mythology_filter, gender_filter, hobbies_filter]);
+   
+   //PourOver has two modes: functional and stateful
+   //  it is actually biased towards stateful, with a lot of glue code that handles figuring out what any particular write means to the current substates (i.e. views) it is tracking
+   // functional is much much slower on decently sized datasets
+   
+   // Functional: getFn()
+   var greek_monsters = collection.filters.mythology.getFn("greek");
+   var terror_monsters = collection.filters.hobbies.getFn("terrorizing");
+   
+   // Stateful:   query() + .current_items 
+   
+   
+   var female_view = new PourOver.View("dsdffdsefault_view", collection);
+   collection.filters.sex.query("f")
+   // or (this is the primary designed use case), View.getCurrentItems()
+   console.log("female_view = ", female_view.getCurrentItems())
+   
+   collection.on("change", function(e) {
+     console.log("collection.change: The database is now ", collection, " and the event gave us this extra data: ", e);
+   })
+   
+
+   female_view.on("update", function(e) {
+     console.log("female_view.update: The females in mythology are now ", female_view, " and the event gave us this extra data: ", e);
+     console.log(female_view.getCurrentItems());
+   })
+   
+
+   female_view.on("collection-change", function(e) { //view.change happens; however, it bubb
+     console.log("female_view.change: The females in mythology are now ", female_view, " and the event gave us this extra data: ", e);
+     console.log(female_view.getCurrentItems());
+   })
+   // It seeeeems (I haven't exhuastively read the code to check) that 'change' is meant for the data and 'update' is meant for views (i.e. when they are paged or a query is added or whatnot)
+   //  To my mind filtering a view is a form of data update, but I can see why you might want to distinguish the cases.
+   // Another confusing thing about the API: the docs claim you can have multiple views, however the only way to edit a view is by saying collection.filters.filter.query()--so shouldn't all views share the same??
+   
+   // collection.addItems triggers "change" but not "update"; a view triggers both. PourOver's notion of events is the dead simple one that other js libs like: a string plus maybe an extra js object (which is null if not given)
+   
+   // {add,remove}Items, as a convenience, can take a singular object (despite the name) (and this isn't documented, but the code does it)
+   var norns = {name: "norns", mythology: "norse", eyes: 6, sex: "f", hobbies: ["thinking","sitting","staring","prognosticating"]}
+   console.log("Adding ", norns)
+   collection.addItems(norns)
+   
+   // oh interesting: PourOver mutates the objects you give it, appending cids; if you want to keep them pure... well, I guess you can use cloning. Though it is unlike you would want to double your memory usage for no reason.
+   
+   // argh. PourOver is not behaving. I expect that addItems() should eventually bubble (and skimming the source implies this is how it is)
+   //  I've found that female_view.page(), however, will trigger the update handler (even if no change actually happened)
+   
+   console.log("All done");
+</script>
+
+</html>

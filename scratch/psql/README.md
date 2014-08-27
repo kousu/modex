@@ -1,16 +1,32 @@
 
 A subproject to provide a framework for linking model data to the web in a way that supports sophisticated queries so you can get specific pieces of data, and that keeps data up to date without requiring the web-page to re-download the whole page each time.
 
-The idea is to implement the postgress replication protocol [the replication protocol](http://www.postgresql.org/docs/current/static/protocol-replication.html) in javascript, and use [websockify](https://github.com/kanaka/websockify) to proxy javascript to the database.
+Postgres 9.4 has a feature called "Logical Replication", which does most of what we need, but it is not ready for prime time yet.
 
 We are currently thinking of using this with D3 for plots and maps.
 
 Alternative approaches to using data on the web include querying specific streams, CouchDB, and dat (dat-data.com). (What others?)
 
+Quickstart
+---------
+
+To start, make sure you have installed python, postgresql with the pl/python extension, and 
+
+```
+$ initdb data
+$ ./server.sh
+```
+
+To reset,
+```
+$ rm -r data/
+```
+
 Issues
 ------
 
 * Security: exposing the raw SQL protocol to the web has lots of implicit problems.
+  Better idea: flesh out replicant.py until it can speak to postgres, have it reformat the WAL logs into JSON and ship those, read-only. We can even drop Websockify (though it might simply be easier and more reliable to chain a pipe + nc + websockify together) 
 
 Files
 -----
@@ -24,11 +40,3 @@ Files
 Links
 -----
 
-* [postgres developer's list](http://www.postgresql.org/list/pgsql-hackers/)
-* [postgres protocol](http://www.postgresql.org/docs/current/static/protocol.html)
-
-Scrap notes (TODO: move)
-------------------------
-
-postgres runs on tcp:5432 (tcp for reliable in order delivery)
-but uses a message based binary protocol

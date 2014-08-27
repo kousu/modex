@@ -5,3 +5,43 @@ What does filtered replication usually look like?
 How does the web usually replicate data? Are there any standards in this direction? Or do people just write custom URL handlers which do a hard-coded query and return the results in some custom.
 Do you think dat is moving in the right direction, or poorly replicating work that already exists?
 What are the lock-ins and tradeoffs between Document, SQL, Cassandra, and Filesystem databases?
+
+
+
+
+
+New idea:
+ - write my own views
+ - i can't rely on postgres to do dataflow programming for me
+   but what I can do is invent my own layer which never tells the backend DB its doing slicing at all (except maybe to do the initial state dump)
+   
+ - when a view is created it slices the DB appropriately and streams events (XXX concurrency?? do events that come in during the dumping get lost?)
+   and then opens a listener to the DB ( .. how do we do this in general? FIFOs cannot (correctly) have multiple readers; we need to use like.. tee or something... except does that mean we need to restart tee? can I tee to multiple 
+    ..this is where a system bus like dbus or autobahn comes in handy...
+     ...but i sort of love fifos now and I would hack this together in them if possible
+      (..what's the rule? write() -> NXIO if no reader has open(), but write() -> buffer if a reader has open() and simply hasn't called read() ((in nonblocking mode))
+ - for simplicitly, our views are only allowed as slices of single tables ((we might be able to extend))
+  
+  
+  -=-------
+  
+  Status of NoSQL in postgres:
+
+hstore is an older type, provided as a loadable extension with the default PG distro
+ hstore provides a column containing text to text dictionaries. hstore has no way of handling nested data, though.
+ json was added later to postgres, and comes in core postgres. However, postgres's support for the JSON type is only that it validates the JSON and can extract fields when requested, but it stores it as text internally and so every single access requires parsing.
+  JSONB instead stores JSON more like, so that you can, say, have postgres index on subfields like doc->owner->name
+http://www.postgresql.org/message-id/E1WRpmB-0002et-MT@gemulon.postgresql.orgp
+http://www.craigkerstiens.com/2014/03/24/Postgres-9.4-Looking-up/
+
+http://www.pgcon.org/2014/schedule/attachments/326_logical-decoding-pgcon-2014-05-23.pdf
+https://github.com/eulerto/wal2json/blob/master/expected/delete2.out
+https://github.com/michaelpq/pg_plugins/tree/master/decoder_raw
+http://michael.otacoo.com/postgresql-2/postgres-9-4-feature-highlight-logical-replication-receiver/
+http://momjian.us/main/writings/pgsql/features.pdf=
+
+----
+
+useful knowledge:
+ - you cannot DROP FUNCTION if the function is currently attached as a trigger, however you can CREATE OR REPLACE that function and it will update the trigger
+ - 

@@ -1,0 +1,50 @@
+
+-- there's something screwy with sessioning; i hope to hunt it down here
+
+
+DROP TABLE n;
+CREATE TABLE n (i int, pi float);
+
+-- ugh, i don't understand postgres's concurrency model afterall
+-- it seems that different *sessions* see different views??
+-- or maybe that every session is just in an implicit transaction?
+-- not every session; but perhaps every function call within?
+-- www.postgresql.org/docs/current/static/plpython-database.html ?
+
+
+--- ... this is a problem.
+--- none of. I knew I was abusing things going in, but this is a bigger stumbling block than I thought
+-- so, I need ... hm
+-- 
+-- I think this requires going back to the drawing board again.
+--  It seems that postgres is carefully designed to make it seem like functions have no side effects until the function is successfully completed. This is actually a pretty amazing feature, but it's in my way.
+-- So, my API *cannot* be "select * from replicate('n')" + an infinite cursor. Rather 
+-- or, wait, before you give up entirely, you should write a small fib() to see if infinite cursors are possible.
+
+CREATE OR REPLACE FUNCTION subtrans() RETURNS void AS
+$$
+  import random
+  # now, experiment with subtransaction() to see if it helps...
+  # ..no. it doesn't. subtransaction() is meant to match the tree of exception handlers.
+  
+  #plpy.execute("begin");
+  plpy.execute("insert into n values (%d, %d);" %(random.randint(1,10), -70))
+  plpy.execute("commit");
+$$ LANGUAGE plpython2u;
+
+
+CREATE OR REPLACE FUNCTION trigsubtrans() RETURNS void AS
+$$
+  #import IPython; IPython.embed()     #poke around
+  plpy.execute("select * from subtrans()")
+  # theory: the execute() in subtrans() doesn't get committed until trigsubtrans() completes
+  #  and, in my real code (replicate()) I don't *want* to complete, this is a problem.
+  
+  
+  # hang for 10s, to allow testing other sessions before this session commits
+  for i in range(100):
+    plpy.execute("select pg_sleep(0.1)")
+$$ LANGUAGE plpython2u;
+
+
+select * from trigsubtrans();

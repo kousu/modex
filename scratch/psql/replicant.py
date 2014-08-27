@@ -1,898 +1,380 @@
-# implement the client side of http://www.postgresql.org/docs/current/static/protocol-flow.html#AEN98939
-# the reason I'm doing this is because I want to use http://www.postgresql.org/docs/current/static/protocol-replication.html *over a websocket*, and, personally, it's easier to prototype with python
+#!/usr/bin/env python3
+# view.py
+"""
+pure-python protoype of the sort of features we need in a (near-)real-time View.
+The goal is to support dataflow (aka Functional Reactive aka actor) programming on top of SQL.
+It is unfortunate that something like this does not already exist within postgres itself. At least,
+I have not been able to find such a thing. Instead, this fronts onto postgres, using some stored procedure
+shims which spool out all triggers.
+
+This is in python3
+watch.psql is mainly in python2
+This awkwardness will be massaged out later.
+"""
+
+
 
 """
-scrap notes:
+Bugs:
 
-- the protocol is a mixture of binary and string data
-- struct.(un)pack is useful for us for the binary data, but the string data is C-strings, which struct.pack does not handle (it handles fixed sized strings and pascal strings). This means we need to do scanning to parse these parts.
+
+goal: de-hardcode the query
+ --> leave 'where' and 'columns' hardcoded to None (ie all) b/c those are unnecessary right now
+ --? 
+ 
+goal: stuff websockify in front of view_server ("viewd"? ) ;; maybe view is a bad name? it's a replication? it's "filtered replication".. or, what does FRP call this?
+ --> pick better names... 
+
+goal: think through how to rewrite this in terms of logical replication, and map out the pros/cons of that
+
+goal: solve select() on a pipe is returning even when there is nothing to read, forcing me to use a polling loop
+    write some experiments to test select() vs pipes
+    
+experiment with multicast UDP instead of mkfifo + teed
+
+goal: clean up the internal server debugging prints, because I don't need those...
+
+goal: document how to run / make running less stupid
+ -> rename server.sh to db_server.sh and such; and db_server.sh should also kick initdb off if it hasn't run lately
+ -> maybe use libpq environment variables (but then things are annoying to clean up..)
+ 
+embed watch.psql into view.py 
+ -> split it so that the watching function is loadable, and we (initially we can just always reload it)
+ -> make the part that actually initially
+  or possibly a better solution is to use DDL triggers so that every table has a watch on it...
+
+
+bug: DELETE FROM table; doesn't flush its results immediately??
+
+
+far-hanging-fruit
+- catch DROPs
+
+
+
+
+
+my API looks like what?
+
+
+on the js side:
+//////////// internal structure
+
+function replicate(...) {
+  
+  w = WebSocket()
+  w.onmessage(function(e) {
+    queue.push(parse(e.data))
+  })
+  
+  
+  return obj;
+}
+
+
+////////////// API
+
+
+source = replicate("ws://server/replicant/databasename/tablename/", columns, where) ?
+ i.e. there's (and possibly 
+  ...well, the code that installs watchers is going to have to exist *somewhere*
+   either it exists in something that speaks HTTP reading the URLs (flask? flask would be quick for this,
+    and additionally, since there needs be only one of these processes per server, could just have an internal "i have installed the watcher on this table" table)
+
+ to be clear:
+  there's an HTTP process which manages o
+  
+  do I need to write
+  
+"./replicate server?? database?? table [columns] [where]"
+ i think i dooo
+ so i write that... then what?
+ ^ this is the unix way..
+^ "replicate" is basically this file; its output
+then that... pipes stdout to.. somewhere????? ultimately it will need to have multiple teed
+ is it even possible for me to construct native unix pipes between processes within python? I suppose I can do yet another bash wrapper script.
+ oh, useful: websockify has a mode where it exec()s a process; ie it can websockify *either* an existing regular socket, or a program. maybe I don't need socat afterall.
+  --> oh, but something about my build has this broken; which is fine, because the unix way would be that websockify does exactly one thing, which is to speak (and if you need something fancier, that's what (socat or nc) is for)
+  a problem with websockify is that it ignores the path; in fact, the only thing it does with the HTTP path is a logging line:
+```
+              if self.path != '/':
+                self.log_message("%s: Path: '%s'", client_addr, self.path)
+```
+ is it possible for me to do file descriptor handoff? I think so... fork+exec will hand off stdin and stdout to a new process; also, linux has an IPC hack called [???] which allows "sending" FDs to other processes if you need more than that.
+ i want an HTTP server spinning, and *if* we decide that the incoming connection is for a replicant websocket, then I want to fork off to websockify speaking to
+  ...wait; isn't websockify just basically
+   ugh, problem is that unix sockets are *not* just pipes. because pipes read and write streams, and sockets were designed around packets; so you can't do fd; at least, you can't do it and have it work right. you need socat sitting in the middle. 
+   
+   server listen()s for HTTP
+    and spins, handling HTTP requests
+   and um
+   if you are addressed to a replicant session (i.e. path is appropriate and), it [does stuff] then spawns a replicant.py
+ (( the difference between replicant.py and the _changes stream is that replicant prefixes the *current* table state before sending; and, once we're past demo day and get to it, it will do filtering and delta compression and maybe even row-by-row compression (e.g. a set of rows all of which change name from 'a' to 'b' only need to be instructed to do such once)))
+ ((later on, we'll do something clever with replicant.py such that, while each connected session receives a unique prefix of rows, the changes stream is only computed once per combination of parameters))
+ 
+ i want the kernel to do this. i *do not want* to write "loop: write(output, read(input))" because that pulls the data through a buffer in userland; if i must write that, then i want it to be contained in socat, which has been designed to do this very well.
+ 
+ another irritant of websockify is that it insists on 'binary' or 'base64' encoding; but I've used websockets just sending strings back and forth and had it behave itself fine.
+ 
+or do I have to do
+source = replicate("ws://server/replicant/", "databasename", "tablename", columns, where)
+corresponding to
+w.send('{"db": "databasename", "table": "tablename", "columns": "columns", "where": where}') //NB: 'where' is not spec'd yet; in fact, I am going to leave it unspecced because spec'ing it means redefining SQL or doing some sort of awkward exposure of SQL to the front end
+
+^ this is easier for me right now, so I'm going to do this. 
+ the other way is better because knowing that a table watcher has been installed isn't as finicky
+ 
+ 
+ 
+ 
+Sketch of Components:
+* watchers: the shim of code which gets extracts database updates to a FIFO;
+   currently implemented as a python stored procedure
+   When pg9.4 is released, could be implemented by Logical Replication, though that requires editing a config file instead of just loading some .sql
+* replicants: the code which accepts a client session and feeds out changes to a particular slice
+  Currently implemented in python, and our slice is only (table,), though (database, table, columns, where)
+* websocket bridge: something which connects
+  implementation: some combination of websockify + socat 
+* database: postgres 9.x, in our case
+* simulation(s): a concurrent process which feeds the database; writes (inserts, updates, and deletes (though, for scientific purposes, we should almost never be using updates or deletes; any time we need to go over old territory, instead we should just generate a new simulation ID and append that to all rows)) that the simulation causes should be reflected immediately in the database -> watcher -> replicant -> client chain
+
+* clients: clients watch the database state by opening a websocket to the bridge
+    through an out of band means (e.g. another websocket, likely), clients can control the simulation and hence, indirectly, the values they read from the database. However, the simulation+database 
 
 """
 
-import socket
-import struct
-
-from enum import Enum
-from itertools import chain
-
-from collections import OrderedDict
-import select
 import sys
+import json #for IPC; this will get replaced with something more tuned for high-volume later
+#import sqlalchemy
 
-import traceback
+import select
 
-from warnings import warn
+from itertools import count
 
-# possible messages at http://www.postgresql.org/docs/current/static/protocol-message-formats.html
-# only ones marked "B" are ones we might need to parse
+# TODO: support replicators
 
+def debug(*args, **kwargs):
+    if "file" not in kwargs: kwargs["file"] = sys.stderr
+    print(*args, **kwargs)
 
-
-def pgstruct_commands(fmt):
-    "scan and parse a postgres struct format string, which is the same as a regular format string except that it cannot have its endianness specified (because postgres uses network (big) endianness) and 's' means nul-terminated non-fixed-size C strings"
-    "also, for now, we make the assumption that strings mean ascii strings, though supposedly there's a way to configure this"
-    "note: we *also* support Int64s and for this we again repurpose 'q' which is in the struct spec (but not in the *standard* struct spec only in 'native mode'"
-    if len(fmt) == 0:
-        return
-    assert fmt[0] not in ["@", "=", "<", ">", "!"] #*disallow* user choice of endianness
-    p = 0 #current head
-    # allowed chars in a format string: spaces (ignored), the list of single char commands, and decimal digits but only *immediately* preceeding their single char
-    while p < len(fmt):
-        # ignore spaces 
-        if fmt[p].isspace():
-            p+=1
-            continue
-        
-        # eat numeric digits 
-        e = p
-        while ord("0") < ord(fmt[e]) < ord("9"):
-            e += 1
-        l = int(fmt[p:e]) if e > p else None
-        # and the format char 
-        e += 1
-        # actually extract the command sequence
-        cmd = fmt[p:e]
-        
-        # advance the pointer
-        p = e
-
-        
-        if cmd[-1] == "s":
-            assert len(cmd) == 1, "non-fixed-width strings *must not* have a length associated"
-        
-        assert cmd[-1] not in ["p", "n", "N", "P"], "%s only available in native struct format, which postgres, using network format, does not use" % cmd[-1]
-        # "q", "Q"]
-        
-        yield cmd        #assert c in ["x","c","b","B","?","h","H","i","I","l","L","f","d","s","p", "n","N", "P", "q","Q"], "bad char in struct format"
-              
-#print(list(pgstruct_commands("x x h y hy h x   3xx xx x")))
-
-
-def pgpack(fmt, *args):
-    "postgres-pack: stuff some data into a single structure"
-    "this is here to enforce that everything in Postgres is in network byte order"
-    "XXX this currently FORCES ASCII. Be warned."
+class ChangeEvent(object): #abstract base class
+    pass
     
-    # in order to change the meaning of 's' we need to do at least a bit of parse ourselves
-    # I think(?) the least slow (but still stuck in python) way to do this is by doing each individually in a generator then join() the results
-    
-    #TODO: this would be faster if we were clever about finding chunks of string vs non-string blocks and encoded the non-string blocks all at once, since that's done by the _struct.so module
-    
-    def fm(cmd, a):
-        if cmd == "s":
-            assert isinstance(a, str)
-            return a.encode("ascii") + b"\x00" #nul-terminate the string and pass it back
-        elif cmd.lower() == "q":
-            if cmd == "q":
-                warn("signed Int64s are untested")
-            cmd = "!" + {"q": "i", "Q": "I"}[cmd]
-            # we do Int64s by reducing them to two Int32s and concatenanting
-            # we should be able to ignore because the bitmask will handle that ...
-            #...hm. how do negatives affect the results?
-            return fm(cmd, 0xFFFFFFFF00000000 & a) + fm(cmd, 0x00000000FFFFFFFF & a) #network order means most significant bytes first! we concate
-        
-        # otherwise fall back on normal
-        return struct.pack("!" + cmd, a) # ! means 'network order' per https://docs.python.org/3.4/library/struct.html
-    
-    return bytes.join(b"", (fm(c, a) for c,a in zip(pgstruct_commands(fmt), args)))
-    
-
-#print(pgpack("sh", "i am a merry model", 888))
-
-def pgunpack(fmt, buffer):
-    r, o = pgunpack_from(fmt, buffer)
-    assert o == len(buffer), "pgunpack requires an exact-length buffer"
-    return r
-
-def pgunpack_from(fmt, buffer, offset=0):
-    "the return value of this is *two*-valued: the usual tuple of results from struct.unpack *plus* the *remainder of buffer*, because due to C-strings there is no way to know before calling this how much of buffer will get eaten"
-    "the struct module does it differently; since all its fields have their width specified in the format string, it can provide a (functional-style) routine 'calcsize' and force you to use it, even with pascal strings *which have a size byte embedded*"
-    "but we only find out our field widths during parsing"
-    "XXX this currently ASSUMES ASCII. Be warned."
-    
-    # this cannot be done functionally, because the width of each buffer is variable, due to C-strings
-    
-    def parse(): #a generator to do the parsing for us
-        nonlocal offset
-        # ..hm. okkkkay. this is complicated.
-        # buffer commands that *are not 's'* and unpack them all at once
-        
-        
-        def buffered_commands(fmt):
-            # yields ONLY either 's' or a valid format string of fixed width entries
-            cmds = []
-            
-            for cmd in pgstruct_commands(fmt):
-                if cmd in ["s", "q", "Q"]:
-                    if cmds:
-                        yield str.join(" ", cmds); cmds = []
-                    yield cmd
-                else:
-                    cmds.append(cmd)
-            
-            if cmds:
-                yield str.join(" ", cmds); cmds = []
-        
-        
-        for cmd in buffered_commands(fmt):
-            if cmd == "s":
-                e = buffer.find(b"\x00", offset)
-                yield buffer[offset:e].decode("ascii")
-                offset = e + 1
-            elif cmd.lower() == "q": #Int64 support
-                cmd = {"q": "i", "Q": "I"}[cmd]
-                M, m = struct.unpack_from("!" + cmd + cmd, buffer, offset) 
-                yield M << 32 | m #do the reverse of the concatenation in pgpack(): extract each 4 byte block and combine them (with our old friends bitshift and or)
-                offset += 8 #8 bytes in a 64 bit number
-            else:
-                cmd = "!" + cmd # ! means 'network order' per https://docs.python.org/3.4/library/struct.html
-                w = struct.calcsize(cmd)
-                for t in struct.unpack_from(cmd, buffer, offset):
-                    yield t
-                offset += w
-                
-    return tuple(parse()), offset
-    
-
-#print(pgunpack_from("sih", pgpack("sih", "i am a merry model", -919191, 888)+b" la lal al alalla I am the walrus"))
-
-def pg_marshal_dict(D):
-    "marshal an ordered dictionary"
-    assert type(D) == OrderedDict
-    str.join("", ["%s\0%s" % (k,D[k]) for k in D]) #XXX this should be a bytes object...
-   
-   
-class ProtocolVersion:
-    "Misuse a class to define protocol version declaratively"
-    Major = 3
-    Minor = 0
-
-class MessageSource:
-    "in postgres each message type, and a small number are bidirectional"
-    def __init__(self, backend=False, frontend=False):
-        self.backend, self.frontend = backend, frontend
-#aliases to make writing this easier
-S = MessageSource
-S.F = MessageSource(frontend=True)
-S.B = MessageSource(backend=True)
-S.FB = MessageSource(backend=True, frontend=True)
-   
-   
-# NB: 
-# messaging functions...
-class Message(object):
-    # class-wide definitions
-    TYPECODE = None #the message code, a single byte
-    SOURCE = None   #which MessageSource this type of Message is allowed (copied straight from the protocol docs)
-    
-    # overridables
-    def render(self):
-        "serialize this message to a bytes"
-        "some message types may need to override this"
-        payload = self.payload()
-        k = 4 + len(payload) #4 is the len of k itself
-        return self.TYPECODE + pgpack("I", k) + payload
-        
-    def payload(self):
-        "generate the actual content of the message"
-        raise NotImplementedError()
-        
-    @classmethod
-    def parse(cls, msg):
-        "parse a message"
-        "subclasses should override this but super() call up to it to enforce type constraints"
-        if not type(msg) is bytes: raise TypeError()
-        if not msg[0] == cls.TYPECODE: raise ValueError()
-    
+class Insert(ChangeEvent):
+    def __init__(self, row):
+        self.row = row
     def __str__(self):
-        return "<%s>" % (type(self).__name__,)
-
-class UnknownMessage(Message):
-    SOURCE = S.FB
-    def __init__(self, typecode, payload):
-        self.TYPECODE = typecode
-        self.payload = payload
+        return json.dumps({"+": self.row})
+        
+class Delete(ChangeEvent):
+    def __init__(self, row):
+        self.row = row
     def __str__(self):
-        return "<%s('%s'): %s>" % (type(self).__name__, self.TYPECODE, self.payload)
-
-# this is probably pretty simple to do fully declaratively, by definining a type. the only complicated parts are that some of the spec has like, lists
-
-# parsing is like this: you read the type byte, then you read the length word (4 bytes), then you read the number of words given (possibly crashing there)
-
-class StartupMessage(Message):
-    TYPECODE = b"" #"For historical reasons, the very first message sent by the client (the startup message) has no initial message-type byte." <http://www.postgresql.org/docs/current/static/protocol-overview.html>
-    SOURCE = S.F
-    
-    
-    _TERMINATOR = b"\x00"
-    
-    def __init__(self, user, database=None, **options):
-        self.options = options
-        self.options['user'] = user
-        if database is not None:
-            self.options['database'] = database
-        # the docs are unclear; it says something about there being extra arguments you can pass here...
+        return json.dumps({"-": self.row})
         
-    def payload(self):
-        VERSION = ProtocolVersion.Major << 16 | ProtocolVersion.Minor
-        #TODO: pull the null-termination thing out to a different function (maybe even to pgpack?)
-        # 'chain' and the two starmaps are from http://stackoverflow.com/questions/406121/flattening-a-shallow-list-in-python
-        return pgpack("I", VERSION) + pgpack("ss"*len(self.options), *chain(*self.options.items())) + self._TERMINATOR
-
+class Update(ChangeEvent):
+    def __init__(self, old, new):
+        self.old = old
+        self.new = new
     def __str__(self):
-        return "<%s(): %r>" % (type(self).__name__, self.options)
+        return json.dumps({"-": self.old, "+": self.new})
+
+class ITableChanges(object):
+    def next(self):
+        raise NotImplementedError("This is an interface definition only. Subclass and override.")
 
 
-
-def invert_enum(enum_cls):
-    enum_cls.__reverse_members__ = OrderedDict([(k.value, k) for k in enum_cls.__members__.values()])
-
-
-class AuthRequest(Message):
-    "The docs define several Auth messages, but they all have the same typecode and instead differ in the values in the payload, so I follow that here; but it *is* somewhat complicated by that not all values in the structure exist in all responses..."
-    TYPECODE = b"R"
-    SOURCE = S.B
+class PipeChanges(ITableChanges):
+    "parses change events as serialized by watch.psql"
+    """
+     the serialization format is:
+      a json object that looks like:
+        {"+": row} for inserts, or
+        {"-": row} for deletes, or
+        {"-": row, "+", row} for updates
+      where a row is a jsonification of a SQL row, ie.
+     This is not the most efficient protocol we could use, but it's dead simple to program against.
+    """
+    def __init__(self, stream):
+        "stream should be an open file object in +r mode"
+        self._source = stream
     
-    class AuthTypes(Enum):
-        Ok = 0
-        KerberosV5 = 2
-        CleartextPassword = 3
-        MD5Password = 5
-        SCMCredential  = 6
-        GSSAPI = 7
-        SSPI = 9
-        Continue = 8
-    invert_enum(AuthTypes)
-    
-    def __init__(self, subtype, authdata=None):
-        self.subtype = subtype
-        self.authdata = authdata
-    @classmethod
-    def parse(cls, payload):
-        typeable, = pgunpack("I", payload[:4])
-        subtype = cls.AuthTypes.__reverse_members__[typeable]
-        authdata = payload[4:] #for md5 and gssapi and sspi, this extra data will appear magically; otherwise it should be empty
-        if subtype not in [cls.AuthTypes.Continue, cls.AuthTypes.MD5Password]: assert not authdata
-        return cls(subtype, authdata)
+    def __next__(self):
         
-    def __str__(self):
-        return "<%s::%s(%s)>" % (type(self).__name__, self.subtype, "%r"%self.authdata if self.authdata else "")
-
-
-# now all the subtypes that an auth request can be...
-#class AuthOk(AuthRequest):
-#    ID = 0
-
-class BackendKeyData(Message):
-    "'Identifies the message as cancellation key data.'"
-    "'The frontend must save these values if it wishes"
-    " to be able to issue CancelRequest messages later.'"
-    TYPECODE = b"K"
-    SOURCE = S.B
-    def __init__(self, key):
-        self.key = key
-    @classmethod
-    def parse(cls, payload):
-        return cls(payload)
-        
-    def __str__(self):
-        return "<%s(%r)>" % (type(self).__name__, self.key)
-
-
-class ParameterStatus(Message):
-    "a parameter status is simply a key value pair wherein the server reports what its private parts look like"
-    TYPECODE = b"S"
-    SOURCE = S.B
-    
-    def __init__(self, key, value):
-        self.key = key
-        self.value = value
-    
-    @classmethod
-    def parse(cls, payload):
-       key, value = pgunpack("ss", payload)
-                  
-       return cls(key, value)
-    def __str__(self):
-        return "<%s(%r: %r)>" % (type(self).__name__, self.key, self.value)
-
-
-class ReadyForQuery(Message):
-
-    "'ReadyForQuery is sent whenever the backend is ready for a new query cycle.'"
-    TYPECODE = b"Z"
-    SOURCE = S.B
-    
-    class TransactionStates(Enum):
-        Idle = b"I"
-        Transacting = b"T"
-        Error = b"E"
-        
-    invert_enum(TransactionStates)
-    
-    def __init__(self, state):
-        self.state = state
-        
-    @classmethod
-    def parse(cls, payload):
-        assert len(payload) == 1
-        
-        return cls(cls.TransactionStates.__reverse_members__[payload])
-        
-    def __str__(self):
-        return "<%s::%s>" % (type(self).__name__, self.state)
-
-class ErrorResponse(Message):
-    TYPECODE = b"E"
-    SOURCE = S.B
-    "The message body consists of one or more identified fields, followed by a zero byte as a terminator. Fields can appear in any order. For each field there is the following:"
-    def __init__(self, fields):
-        "fields is a dictionary mapping single characters to strings. The chars are message types (currently, it is not worth the effort to make proper classes for all these)"
-        self.fields = fields
-    
-    @classmethod
-    def parse(cls, payload):
-        p = 0
-        fields = {}
-        while p < len(payload):
-            (code, content), p = pgunpack_from("c s", payload, p)
-            if code == b"\x00":
-                break
-            code = code.decode("ascii")
-            print(code, content, p)
-            fields[code] = content
-        assert p == len(payload)
-        return cls(fields)
-    
-    def __str__(self):
-        return "<%s> %s" % (type(self).__name__, self.fields)
-        
-class CommandComplete(Message):
-    "Identifies the message as a command-completed response."
-    "actually has several sub-classes, which we implement here (in line with the protocol) as a .tag field and the CommandComplete.Tag tree of classes"
-    TYPECODE = b"C"
-    SOURCE = S.B
-    
-    class Tag:
-        pass
-    
-    class Insert(Tag):
-        def __init__(self, object_id, rows):
-            self.object_id, self.rows = object_id, rows
-    class Delete(Tag):
-        def __init__(self, rows):
-            self.rows = rows
-    class Update(Tag):
-        def __init__(self, rows):
-            self.rows = rows
-    class Select(Tag):
-        def __init__(self, rows):
-            self.rows = rows
-    class Move(Tag):
-        def __init__(self, rows):
-            self.rows = rows
-    
-    class Fetch(Tag):
-        def __init__(self, rows):
-            self.rows = rows
-    
-    class Copy(Tag):
-        def __init__(self, rows):
-            self.rows = rows
-    
-    def __init__(self, tag):
-        self.tag = tag #TODO: structure this; the tags themselves    
-    
-    @staticmethod
-    def parsetag(tag):
-    
-        #I D U S M F C
-        h = tag[0:1] #I cheat: I parse the tag by looking at the first byte; note, with *bytes*, indexing is different from slicing, which is why we use 0:1
-        w = "it is an error to add strings and numbers in python"
-        if h == b"I":
-            w = 6
-            assert tag[:w] == b"INSERT"
-            return CommandComplete.Insert(tag[w:]) #TODO: parse this better!!
-        elif h == b"D":
-            w = 6
-            assert tag[:w] == b"DELETE"
-            return CommandComplete.Delete(tag[w:]) #TODO: parse this better!!
-        elif h == b"U":
-            w = 6
-            assert tag[:w] == b"UPDATE"
-            return CommandComplete.Update(tag[w:]) #TODO: parse this better!!
-        elif h == b"S":
-            w = 6
-            assert tag[:w] == b"SELECT"
-            return CommandComplete.Select(tag[w:]) #TODO: parse this better!!
-        elif h == b"M":
-            w = 4
-            assert tag[:w] == b"MOVE"
-            return CommandComplete.Move(tag[w:]) #TODO: parse this better!!
-        elif h == b"F":
-            w = 5
-            assert tag[:w] == b"FETCH"
-            return CommandComplete.Fetch(tag[w:]) #TODO: parse this better!!
-        elif h == b"C":
-            w = 4
-            assert tag[:w] == b"COPY"
-            return CommandComplete.Copy(tag[w:]) #TODO: parse this better!!
-        else:
-            raise ValueError("Unknown tag", tag)
-    
-    @classmethod
-    def parse(cls, payload):
-        return cls(cls.parsetag(payload))
-    def __str__(self):
-        return "<%s.%s>" % (type(self).__name__, type(self.tag).__name__)
-
-class EmptyQueryResponse(Message):
-    TYPECODE = b"I"
-    SOURCE = S.B
-    
-    @classmethod
-    def parse(cls, payload):
-        assert not payload, "EmptyQueryResponse should have no payload"
-        return cls()
-    
-
-class Query(Message):
-    TYPECODE = b"Q"
-    SOURCE = S.F
-    
-    def __init__(self, string):
-        self.string = string
-        
-    def payload(self):
-        return pgpack("s", self.string)
-        
-    def __str__(self):
-        return "<%s>: '%s'" % (type(self).__name__, self.string)
-
-
-class RowDescription(Message):
-
-    TYPECODE = b"T"
-    SOURCE = S.B
-    
-    
-    def __init__(self, fields): #a DataRow is a list of fields, ordered but unlabelled
-        self.fields = fields
-       
-    @classmethod 
-    def parse(cls, payload):
-        (n,), payload = pgunpack("H", payload[:2]), payload[2:]
-        # parse each field
-        fields = []
-        offset = 0
-        for i in range(n):
-            # order: name, table ID, column ID, field type, field size, field type modifier, text/binary flag (0=Text, 1=Binary)
-            f, offset = pgunpack_from("s i h i h i h", payload, offset)
-            
-            fields.append(f)
-        return cls(fields)
-    
-    def __str__(self):
-        return "<%s>: '%s'" % (type(self).__name__, self.fields)
-        
-class DataRow(Message):
-    TYPECODE = b"D"
-    SOURCE = S.B
-    
-    
-    def __init__(self, data): #a DataRow is a list of fields, ordered but unlabelled
-        self.fields = data
-    
-    @classmethod
-    def parse(cls, payload):
-        (n,), payload = pgunpack("H", payload[:2]), payload[2:]
-        
-        # parse each field
-        fields = []
-        for i in range(n):
-            (l,), payload = pgunpack("i", payload[:4]), payload[4:]
-            if l == -1:
-                fields.append(None) # a SQL NULL value
-                payload
-            else:
-                f, payload = payload[:l], payload[l:]
-                # ...darn, I need a pseudo-global; I need to be able to look at PgClient.parameters["client_encoding"]. But that
-                f = f.decode("ascii") #XXX hardcoded sketchiness!
-                fields.append(f)
-                
-        assert not payload, "We didn't eat up the entire payload while parsing a DataRow; was the number of fields wrong?"
-            
-        return cls(fields)
-        
-    def __str__(self):
-        return "<%s> %s" % (type(self).__name__, self.fields)
-
-
-class CopyData(Message):
-    "Data that forms part of a COPY data stream. Messages sent from the backend will always correspond to single data rows, but messages sent by frontends might divide the data stream arbitrarily."
-    TYPECODE = b"d"
-    SOURCE = S.FB
-    
-    def __init__(self, data):
-        self.data = data
-    
-    def render(self):
-        return self.data
-        
-    @classmethod
-    def parse(cls, payload):
-        return cls(payload)
-    def __str__(self):
-        return "<%s> %s" % (type(self).__name__, self.data)
-
-
-
-
-MESSAGES = dict((m.TYPECODE, m) for m in locals().values() if type(m) is type and issubclass(m, Message))
-
-### replication protocol messages 
-### all of these are passed as queries ("Q") messages
-### http://www.postgresql.org/docs/current/static/protocol-replication.html
-
-# XXX put these in a submodule
-# 
-
-class Replication_IdentifySystem(Query):
-    def __init__(self):
-        super().__init__("IDENTIFY_SYSTEM")
-
-class Replication_Start(Query):
-    def __init__(self, timeline, logpos):
-        print(logpos)
-        assert len(logpos.split("/")) == 2
-        super().__init__("START_REPLICATION %s TIMELINE %s" % (logpos, timeline))
-
-# so, a question:
-#  who owns who (as usual):
- # should Repliaction_Message create a hidden CopyData and call its render()? 
- # should Replication_Message be a *subclass* of CopyData? (but this can't work, because the inner .TYPECODE would stomp the outer one)
- # 
-
-class Replication_Message(Message):
-    "messages sent in the replication subprotocol, layered over Queries and CopyDatas, do not come with a message length field, so we need to subclass and override render"
-    def render(self):
-        return self.TYPECODE + self.payload()
-
-class Replication_XLogData(Replication_Message):
-    TYPECODE = b"w"
-    SOURCE = S.B
-    # this message is only ever found *inside* of a CopyData
-    # but it's not really, itself, a CopyData message
-    
-    def __init__(self, start, end, clock, records):
-        self.start, self.end = start, end
-        self.clock = clock
-        self.records = records
-    
-    @classmethod
-    def parse(cls, payload):
-        (start, end, clock), p = pgunpack_from("L L L", payload)
-        records = payload[p:] #XXX the records should be parsed!!
-        return cls(start, end, clock, records)
-    
-    def __str__(self):
-        return "<%s> [%s..%s] @ %s" % (type(self).__name__, self.start, self.end, self.clock)
-
-
-
-# for timestamping
-import datetime
-from calendar import timegm
-datetime.timegm = timegm #"I can’t for the life of me understand why the function timegm is part of the calendar module."
-del timegm               #http://ruslanspivak.com/2011/07/20/how-to-convert-python-utc-datetime-object-to-unix-timestamp/
-
-def pgtime(t):
-    "make a postgres time more consistent by converting their integer format to python datetime objects"
-    " a postgres time is integer microseconds since 2000-01-01"
-    " standard unix time is a floating point in seconds (1e6 microseconds!) since 1970-01-01"
-    " so some arithmetic is involved here, and for that we need the datetime module"
-    
-    t /= 1e6 #convert to seconds. note! as written, depends on py3k __division__!
-    epoch = datetime.datetime(2000, 1, 1) #the postgres epoch
-    dt = datetime.datetime.fromtimestamp(t) - datetime.datetime.fromtimestamp(0) #write 't' as a timedelta, regardless of what the system epoch is set to
-    return epoch + dt #this returns a datetime which (ignoring the necessary typecasts) is 2000-01-01 + t
-
-class Replication_Keepalive(Replication_Message):
-    " end is 'The current end of WAL on the server'"
-    " clock is the server's system clock when it sent the message server "
-    " ping is a boolean where 1 means the server will disconnect you if you don't reply with a Replication_StandbyStatusUpdate or a Replication_HotStandbyFeedbackMessage soon"
-    TYPECODE = b"k"
-    SOURCE = S.B
-    # this message is only ever found *inside* of a CopyData
-    # but it's not really, itself, a CopyData message
-    
-    def __init__(self, end, clock, ping):
-        self.end = end
-        # convert
-        self.clock = pgtime(clock)
-        self.ping = ping
-        print("Y OYO YOU OU OU OU OU O", self.ping)
-    
-    @classmethod
-    def parse(cls, payload):
-        end, clock, ping = pgunpack("Q Q ?", payload)
-        return cls(end, clock, ping)
-    
-    def __str__(self):
-        return "<%s> [..%s] @ %s; %s" % (type(self).__name__, self.end, self.clock, "[PING]" if self.ping else "")
-
-class Replication_HotStandbyFeedbackMessage(Replication_Message):
-    def __init__(self, xmin, clock=None, epoch=0):
-        "clock defaults to time.time()" 
-        "epoch seems badly undocumented e.g. <http://www.postgresql.org/docs/current/static/app-pgresetxlog.html> 'the transaction ID epoch is not actually stored anywhere in the database except in the field that is set by pg_resetxlog,'?? so it defaults to 0"
-        "if xmin is 0 it is considered notice that this ping is going to 'turn off' whatever that means"
-        self.xmin = xmin
-        self.clock = clock
-        self.epoch = epoch
-        
-    def render(self):
-        # if clock isn't set we set it here, at render-time instead of at init time, to reduce the lag latency implicit in the timestamp as much as possible 
-        #XXX this time.time() call is almost certainly wrong because the postgres epoch is year 2000
-        clock = self.clock if self.clock is not None else time.time()
-        return pgpack("L I I", clock, self.xmin, self.epoch)
-
-class FormatMode(Enum):
-    Text = 0
-    Binary = 1
-invert_enum(FormatMode)
-
-class CopyBothResponse(Message):
-    TYPECODE = b"W"
-    SOURCE = S.B
-    
-    def __init__(self, format, columnformats):
-        if format == FormatMode.Text:
-            assert all(f == FormatMode.Text for f in columnformats) #All must be zero if the overall copy format is textual.
-        self.format = format
-        self.columns = columnformats
-    
-    @classmethod
-    def parse(cls, payload):
-        (format, n), p = pgunpack_from("b h", payload)
-        columns, p = pgunpack_from("h"*n, payload, p)
-        format = FormatMode.__reverse_members__[format]
-        columns = [FormatMode.__reverse_members__[f] for f in columns] #XXX there's a DoS here! should use .get() or something. or maybe wrap the whole parsing shennanigans in a try-catch
-        
-        return cls(format, columns)
-    
-    def __str__(self):
-        return "<%s> %s | %s" % (type(self).__name__, self.format, self.columns)
-
-# oh my gosh
-# there is a protocol identical in structure to the basic protocol that in walsender mode is layered on top of CopyData
-
-REPLICATION_MESSAGES = dict((m.TYPECODE, m) for m in locals().values() if type(m) is type and issubclass(m, Replication_Message))
-
-#-----------------------
-
-
-class PgClient:
-    "layer the postgres message-based protocol on top of stream-based TCP"
-    #TODO: support unix domain sockets too
-    
-    def __init__(self, user, database=None, options = {}, server = ("localhost", 5432)):
-        #self.sock = socket.socket()
-        #self.sock.connect(server)
-        
-        self.key = None   #the postgres cryptokey ("BackendKeyData (B)" The frontend must save these values if it wishes to be able to issue CancelRequest messages later.)
-        
-        self.parameters = {} #the state of the server as reported by ParameterStatus
-        
-        self._running = True
-
-        self.sock = socket.create_connection(server)
-        self.send(StartupMessage(user, database, **options))
-        
-        
-    def send(self, message):
-        assert message.SOURCE.frontend, "%s is not meant to be sent by the client" % message
-        
-        print("<--", message)
-        
-        self.sock.send(message.render())
-    
-    def recv(self):
-        # block
-        # there's a fiddly thing: *if* we are the server then the first message has a missing typecode for recv(1) will break everything
-        # but this file is currently only implementing the client protocol so whatever
-        typecode = self.sock.recv(1)
-        if typecode == b"":
-            raise SocketClosed
-        # XXX this can got bad because the socket might die at *any one* of these calls
-        # and the socket module is a thin layer on the traditional socket API
-        # which means: return codes, not exceptions
-        
-        k = self.sock.recv(4)
-        if k == b"":
-            raise SocketClosed
-        k, = pgunpack("I", k)
-        payload = self.sock.recv(k-4) #-4 because k counts itself, but we've already recv()'d it
-        if payload == b"":
-            raise SocketClosed
-        
-        #print(typecode)
-        message = MESSAGES.get(typecode)
-        if message is None:
-            message = UnknownMessage(typecode, payload)
-        else:
-            message = message.parse(payload)
-            assert message is not None, "You forgot to return the message in parse()!"
-        assert message.SOURCE.backend, "%s is not meant to be received by the client" % message #XXX maybe this shouldn't be an assert because it means there's a DoS here.
-        
-        print("-->", message)
-        
-        # stash the postgres cryptokey (which is sent in plaintext?!)        if isinstance(message, KeyData):
-        if isinstance(message, BackendKeyData):
-            self.key = message.key
-        elif isinstance(message, ParameterStatus): #flatten the ParameterStatus messages into something nicer
-            self.parameters[message.key] = message.value
-        
-        return message
-    
-    def messages(self):
-        while True:
-            try:
-                yield self.recv()
-            except Exception as e:
-                print("it bork:", e) #DEBUG
-                traceback.print_exc()
+        evt = ""
+        while not evt: #hack around empty lines being a problem?!
+            a,b,c = select.select([self._source], [], []) #blocks until self._source is ready
+            debug("select result:", a, b, c)
+            evt = self._source.readline() #blocks here; we could use select() but since we only wait on one 
+        # XXX bug: readline() doesn't block on EOF (which python passes us as "")
+        # patch: use `tail -f` instead of `cat`
+        # XXX flakiness: running multiple readers can make the other reader steal some of the bytes and crash the JSON deserialization
+        # XXX flakiness(?): postgres apparently doesn't call *any* triggers until the session (ie the database connection) that created them is closed(??)
+            evt = evt.strip()
+            if not evt:
+                import time; time.sleep(0.1) #durp; i would rather select(), but polling is alright if I must.
+            else:       
+                debug("_next() read '%s'" % (evt,)) #DEBUG
                 pass
-    
-    def process(self):
-        "; this function mostly exists to be run on a background thread"
         
-        # dealing with this protocol is complicated because it's not a simple request-response protocol. A single request can result in multiple responses, which sometimes come in a particular order and sometimes do not. We're facing a state machine, and that makes it difficult to write cleanly (i.e. functionally).
-        # e.g. a single response to a query is at least three messages:
-        # 1) a RowDescription, giving the fieldnames and order (in csv, the first header row)
-        # 2) a series of DataRows
-        # 3) a CommandComplete
-        
-        # It's *also* complicated because there's layered protocols, though they aren't called that
-        # for example, the "walsender" mode is layered on SQL messages ("Q"ueries and "D"/"C" responses); like, IDENTIFY_SYSTEM returns a SQL table, even though it's metadata that isn't actually SQL.
-        # Maybe we should actually implement some lines here, like "while Reading A Query Response: m = self.recv(); ..." and..stream out the result to a queue of some sort? a queue labelled by the table name or ..something? oh, but even more complicated for us, the protocol does not embed table names in the responses.
-        # the protocol has "ReadyForQuery" to help us, at least.
-        
-        while self._running:
-            # this would be cleaner if I could say "select [pg, sys.stdin]"
-            Sr, _, Se = select.select([self.sock], [], [self.sock], 1) #1s timeout means ~1s between the main thread terminating and this thread noticing and following suit
-            #TODO: figure out some way to have select() wake up on a signal instead of use a timeout
-            # e.g. we make a FIFO or a TCP socket to ourselves?
-            # but it seems sort of strange to use TCP just to talk from one thread to another?
-            #..but maybe it's not. That's what multiprocessing would do. 
-            if Sr:
-                try:
-                    m = self.recv()
-                except Exception as e:
-                    #...?
-                    print("it bork:", e)
-                    traceback.print_exc()
-                    break #???
-                #...?
-                    
-                    #...the best thing to do might actually be to spin off a thread...
-            elif Se:
-                print("Socket fell over") #XXX todo better message
-                break
-                
-        self.sock.close()
-        self.sock = None
-        
-class SocketClosed(Exception): pass #XXX this is dumb. fix it better. please.
+        evt = json.loads(evt)   #TODO: handle exceptions here
+        if "+" in evt and "-" in evt:
+            return Update(evt["-"], evt["+"])
+        elif "+" in evt:
+            return Insert(evt["+"])
+        elif "-" in evt:
+            return Delete(evt["-"])
+        else:
+            warn("Malformed change event: `%s`" % evt)
 
-class PgReplicationClient:
+class View(object):
+    """
+    A View is a slice of a database. For example, "all farms or farmers who existed before 1944".
+    This implementation is special because it is dynamic. It takes a stream of changes,
+    filters them, and then provides a smaller stream of changes which consumers
+     up to date in real time with the state of the view.
+    In other words, this implements filtered replication ([like CouchDB](http://docs.couchdb.org/en/latest/replication/intro.html#controlling-which-documents-to-replicate)),
+    but for SQL.
+    Standard views in SQL regenerate every time they are queried, and similarly Postgres's MATERIALIZED VIEWS (basically a cached view) can only be refreshed once they are stale with a full rescan.
+     All it needs is some water and a source of row-level change events
+     (e.g. as prototyped in watch.psql).
+     
 
-    def __init__(self, user, database=None, server = ("localhost", 5432)):
-        self._pg = PgClient(user, database, {"replication": "on"}, server)
-        for m in self._pg.messages(): #chew through the startup headers (_pg is designed to cache anything it cares about in this set)
-            if isinstance(m, ReadyForQuery):
-                break
-        self._pg.send(Replication_IdentifySystem())
-        header_message = self._pg.recv() #this should give a RowDescription
-        data_message = self._pg.recv() #this should give a DataRow to go with
-        column_ptrs = {f[0]: i for i, f in enumerate(header_message.fields)} #TODO: move this inside of RowDescription
-        
-        # extract the log ids from the header
-        
-        tli = data_message.fields[column_ptrs["timeline"]]
-        xlogpos = data_message.fields[column_ptrs["xlogpos"]]
-        print(tli)
-        print(xlogpos)
-        complete_message = self._pg.recv()
-        ready_message = self._pg.recv()
-        assert isinstance(complete_message, CommandComplete) and isinstance(ready_message, ReadyForQuery), "Protocol got out of sync!"
-        
-        # and use them to start replication!
-        #self.send(Replication_Start(tli, xlogpos))
-        
-        self._running = True
     
-    def send(self, message):
-        print("<[[[", message)
-        if isinstance(message, Replication_Message): #XXX this should be handled by polymorphism inside of the classes!!!
-            message = CopyData(message.render())
-        self._pg.send(message)
+    LIMITING ASSUMPTIONS:
+    * the source of change events feeds full rows
+    * the only sorts of changes are inserts, updates, deletes
+    * the schema never changes
+    * ..but the schema is also never explicitly stated (and the end target is d3-style array-of-rows JSON)
+    * you can only slice tables, not databases, with this (ie there are no JOINs or other fancy operators)
     
-    def recv(self):
+    TODO:
+    * Optimizations
+      * [ ] If that table has a primary key, deletes can be compressed to just send that
+      * [ ] Updates can be compressed be removing the common terms
+      * Ideally, this feature would be fast, in C, inside of Postgres, triggering on updates to parents of MATERIALIZED VIEWS, and would properly handle the full range of SQL (JOINs, SET a = a + 1, etc).
+    """
+    
+    def __init__(self, changes, columns=None, where=None):
+        "changes is a stream of changes from a single table that you're watching" #XXX this def'n is awkward; I don't know what is ideal yet.
+        "columns is a list of; defaults to all columns"
+        "if specified, where should be a predicate taking a row and telling whether it is in the view or not"
+        if where is None:
+            where = lambda *args: True
         
-        message = self._pg.recv()
-        if isinstance(message, CopyData):
-            # parse out the copydatas
-            typecode, payload = message.data[0:1], message.data[1:]
-            
-            # now, we turn message into a different sort of message
-            message = REPLICATION_MESSAGES.get(typecode)
-            if message is None:
-                message = UnknownMessage(typecode, payload)
+        self._source = changes
+        #if columns is None:
+        #    columns = parent.get_all_columns_XXX_THIS_CALL_DOESNT_EXIST_and_maybe_it_doesnt_need_to()
+        self._columns = columns
+        self._where = where
+    
+    
+    def push(self, evt):
+        self._queue.push(evt) #TODO: locking, etc
+    
+    def _publish(self, evt):
+        if evt is None: return #silently make empty events into no-ops 
+        print(evt) #publish the event; for us, this elegantly just means printing; THIS SHOULD BE THE ONLY PRINT TO STDOUT IN THE PROGRAM.
+        sys.stdout.flush()     #XXX hammer around buffering issues which make testing confusing
+    
+    
+    def _cull(self, row):
+        "reduce a row (given as a dictionary) to only the columns (ie dict keys) that are in self.columns)"
+        if self._columns: #if *not* self._columns, pass through all columns
+            row = {k: row[k] for k in self._columns} #XXX this might be a speed bottleneck
+        return row
+        
+    def _process(self):
+        evt = next(self._source)
+        #evt = self._queue.pop(0) #TODO: locking/blocking (python's got a native library for this, right?)
+        # the code below must happen at some point... maybe not in a subroutine like this. then again, maybe so.
+        # evt is a change event; for our purposes, this means it has a .type field which is either ">" (update), "+" (insert) or "-" (delete) followed by
+        
+        if not (isinstance(evt, ChangeEvent) and (not type(evt) is ChangeEvent)):
+            raise TypeError
+        
+        # map source events to events on the table that the view is pretending to be
+        # that is: censor events on rows which the view is not interested in,
+        #          cull rows down to , and
+        #          potentially convert updates to inserts or deletes
+        if isinstance(evt, Insert) or isinstance(evt, Delete): #TODO: polymorphism?
+            if self._where(evt.row): #pass inserts and deletes through unscathed, if they pass the filter
+                evt = evt
             else:
-                message = message.parse(payload)
-        print("]]]>", message)
-        return message   #but the lower level messages are still useful sometimes?? hm
-    
-    def messages(self):
-        "generator"
-        while True:
-            try:
-                yield self.recv()
-            except SocketClosed:
-                break
-            except Exception as e:
-                print("it bork:", e) #DEBUG
-                traceback.print_exc()
-                pass
-                
-    def process(self):
-        for m in self.messages():
-            self._pg._running = self._running
-            if isinstance(m, Replication_Keepalive):
-                if m.ping:
-                    self.send(Replication_HotStandbyFeedbackMessage(-1)) #why -1? why not! "the spirit of Y_0"
-            pass
-            
+                evt = None #do not publish; this row is not in the view
+        elif isinstance(evt, Update):
+            # updates are subtler
+            # every update could be viewed as a deletion and insertion, but that's inefficient and has atomicity issues.
+            # instead, follow this logic:
+            # an update where both sides, old and new, are in the view, is an update to the view
+            # an update where only one side is in the view is, as far as the view's receipients can tell, is an update
+            # 
+            _oIn = self._where(evt.old) #precache, to avoid hitting the predicate more than necessary
+            _nIn = self._where(evt.new)
+            if _oIn and _nIn: #both old and new states of the view see this row; pass it through as an update unscathed
+                evt = evt
+            elif _nIn:
+                evt = Insert(evt.new)
+            elif _oIn:
+                evt = Delete(evt.old)
+            else:
+                evt = None #do not publish; this row is not in the view
+        
+        # filter down the rows 
+        if isinstance(evt, Insert) or isinstance(evt, Delete):  #TODO: polymorphism? 'isinstance' is usually a sign that you should be using polymorphism
+            evt = type(evt)(self._cull(evt.row))
+        elif isinstance(evt, Update):
+            evt = type(evt)(self._cull(evt.old), self._cull(evt.new))
+        
+        # XXX ^ the above flow can probably be simplified by rethinking the ChangeEvent hierarchy
+        debug("FINALLY, evt is ", evt) #DEBUG
+        self._publish(evt)
 
 
-def test():
-    print(Replication_Keepalive.parse(b'\x00\x00\x00\x00\x01|9\xc8\x00\x01\xa0\x18\xd7\x86\xd9\x9d\x01')) #testing int64 support
-    
-    import threading
-    import IPython
-    pg = PgReplicationClient("kousu", "postgres")
-    # now, I would like to wait here for 
-    #...register a promise?
-    #
-    
-    pg.thread = threading.Thread(target=pg.process)
-    pg.daemon = True
-    pg.thread.start()
-    IPython.embed()
-    
-    pg._running = False #signal the client to shut itself down
-    
-                
-                
+
 if __name__ == '__main__':
-    test()
+    
+    #def view([columns], table, where=None)
+    #  - zeroth step is to parse the initial lines from the client, which contain the query: (columns, table, where)
+    #  - first step is it tells the query to the DB ("select [columns] from table where ...")
+    #  - second it arranges to receive the feed (note: feed == stream == queue; it is ordered and waits for us to pull from it)) of changes for the given table ((this might involve setting up triggers? it also might involve speaking to 'teed')); I *think* the order is important here: we want to receive changes beginning exactly at the timestamp after the one the query is slicing. All methods besides the one I want will lead to a race condition here.
+    #  - third it spools out the result of the query to the client, as a stream of + changes; because of [MVCC](https://wiki.postgresql.org/wiki/MVCC), this spools out
+    #  - finally, it transparently switches over to spinning through the feed of changes, doing the filtering as it goes
+    
+    # STEP ZERO: parse request
+    req = sys.stdin.readline()  #admittedly, the unix way
+    req = json.loads(req)
+    
+    # hardcoded columns
+    #columns = ["name", "rating"] #nb. None ~= all
+    columns = None
+    
+    # hardcoded table
+    #table = "films"
+    table = req["table"]
+    
+    # hardcoded where predicate
+    #def w(row):
+    #    debug("where() clause received row", row)
+    #    return row["rating"] >= 3
+    w = None
+    
+    # ** the above three should be replaced by some code which parses the initial request    
+    
+    # STEP ONE: query current state
+    # ** we skip doing this for now; it is as if the table always starts empty, which is fine for testing
+    
+    # STEP TWO:
+    # ** we hardcode directly reading from the changes feed
+    with open("data/_changes_%s" % (table,)) as feed:
+        # STEP THREE: spool the initial DB state (ie its state at query-time) out
+        # ** skipped, since step two is skipped
+        
+        # STEP FOUR: spool changes out
+        #
+        v = View(PipeChanges(feed), where=w)
+        for i in count():
+            debug("-"*80)
+            debug("step ", i)
+            v._process()
+        

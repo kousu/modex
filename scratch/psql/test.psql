@@ -1,0 +1,45 @@
+
+-- these tips are from
+--  http://www.postgresql.org/message-id/1405660725952-5811931.post@n5.nabble.com and
+--  http://www.postgresql.org/message-id/1405703990457-5811982.post@n5.nabble.com
+
+
+DROP TABLE IF EXISTS films CASCADE;
+CREATE TABLE films (name text, kind text, rating int);
+
+\COPY films FROM './films.sql'; -- COPY runs on the server, Hence, the client commanding the server to load a file *must give a full path*, because it doesn't know where the server is. Conversely, \COPY runs on the client, which, if the server is remote, might be a large amount of data. See <https://wiki.postgresql.org/wiki/COPY>
+
+INSERT INTO films VALUES ('Grass', 'Documentary', 0);
+INSERT INTO films VALUES ('The Mail Man', 'Documentary', 3);
+DELETE FROM films WHERE name = 'Sallu Sue' or name = 'Seventy Days';
+INSERT INTO films VALUES ('Superfly', 'Comedy', 5);
+UPDATE films SET name = 'Ugly Ducks' WHERE rating < 5;
+
+
+
+-- playing with views
+
+CREATE VIEW comedies AS select * from films where kind = 'Comedy'; --this from <http://www.postgresql.org/docs/current/static/sql-createview.html#SQL-CREATEVIEW-UPDATABLE-VIEWS>
+
+DROP MATERIALIZED VIEW IF EXISTS comedies_m;
+CREATE MATERIALIZED VIEW comedies_m AS
+  SELECT * FROM films WHERE kind = 'Comedy'
+  WITH DATA;
+--REFRESH MATERIALIZED VIEW comedies_m;
+
+SELECT * FROM films;
+
+-- this is illegal; you can attach triggers only to tables and to views (and views have extra restrictions)
+-- 
+--CREATE TRIGGER watch_comedies
+--  AFTER INSERT OR UPDATE OR DELETE
+--  ON comedies_m
+--  FOR EACH STATEMENT
+--  EXECUTE PROCEDURE watch_table();
+
+-- CREATE TRIGGER watch_table_view
+--  AFTER INSERT OR UPDATE OR DELETE
+--  ON comedies
+--  FOR EACH STATEMENT
+--  EXECUTE PROCEDURE watch_table('comedies');
+

@@ -1,0 +1,25 @@
+
+-- getting the details of how to misuse a table for dataflow programming right:
+-- it turns out you cannot use INSTEAD OF *except* on Views, which is sort of funny
+-- but postgres give a mechanism to cause instead-of-like effects
+--  only if a) you set BEFORE b) you set FOR EACH ROW c) you return "SKIP" (this last condition is the pl/python specific way to do it; I haven't looked up the other languages)
+
+CREATE OR REPLACE LANGUAGE plpython2u;
+
+DROP TABLE IF EXISTS tt;
+CREATE TABLE tt (i int, data text);
+CREATE OR REPLACE FUNCTION instead() RETURNS trigger AS
+$$
+  print("[instead()]: ", TD["new"])
+  return "SKIP"
+$$ LANGUAGE plpython2u;
+
+CREATE TRIGGER tt_trigger
+  BEFORE INSERT  -- We only catch INSERT here, because we mean to
+  ON tt -- maintain the invariant that this table is empty
+  FOR EACH ROW
+  EXECUTE PROCEDURE instead();
+
+
+INSERT INTO tt VALUES (1, 'happy'), (2, 'elohim'), (3, 'buddha'), (4, 'elephant');
+SELECT * from tt;

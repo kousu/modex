@@ -21,6 +21,8 @@ HTML5 is extremely powerful. It has a lot of new widgets (under form elements: s
 * [Boilerplate](http://html5boilerplate.com/)
 * [Bootstrap](http://getbootstrap.com/)
 
+* [Polymer](http://www.polymer-project.org/), a javascript hack + project that **adds new HTML tags** like "<google-map>" and "<chart>", with extensibility in mind. This finally adds includes to HTML5, and it does it targetting all the modern power of the modern DOM.
+
 ## Visualization
 
 * [Vispy](http://vispy.org/) (_not a frontend possibility, but targetted at real-time big-data and interactivity, so good to keep in mind_)
@@ -267,6 +269,9 @@ There are many [paradigms](http://www.slideshare.net/slidarko/an-overview-of-dat
 * misc.
     * [Cassandra](https://cassandra.apache.org/)
     
+
+Tools
+* [Jailer](http://jailer.sourceforge.net/), for exporting slices of SQL databases
 
 Remote Query Protocols
 
