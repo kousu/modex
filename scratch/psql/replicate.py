@@ -172,11 +172,12 @@ def replicate(_table):
     
     
 if __name__ == '__main__':
+
     import sys
     table = sys.argv[1]
     
     for delta in replicate(table):
-        print(delta)
+        print(delta, flush=True)
     
     # NOTREACHED
     

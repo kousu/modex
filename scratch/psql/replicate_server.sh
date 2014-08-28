@@ -12,8 +12,8 @@
 # the multiple-client effect is achieved by socat TCP-LISTEN,...,fork [nc calls this -k]
 
 PORT=8082
-SERVER="./view.py"
+SERVER="./replicate.py $1"
 
 # reusaddr gets around lingering (e.g. TIME_WAIT) connections blocking the new bind(),
 #  so that you can stop and restart this script immediately
-socat TCP-LISTEN:$PORT,fork,reuseaddr EXEC:$SERVER
+socat TCP-LISTEN:$PORT,fork,reuseaddr EXEC:"$SERVER"
