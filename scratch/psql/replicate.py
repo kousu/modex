@@ -19,6 +19,10 @@ consider whether we can ditch SQLAlchemy; all this script does is issue simple S
  speaking DBAPI directly would be less heavy
  
 
+unregister is not getting called on ctrl-c or other exceptions, even though I've
+ --> since the with: is inside of a generator,there's paths through the code which quit without going through the .__exit__(). Very annoying.
+ ...but it should mostly be blocking in Changes.__next__, so why is this such an obvious problem??
+
 Concurrency bugs:
  by adding artificial stalls (time.sleep()) to the script, you can demonstrate these to yourself
  1) writes that occur after "cur = " but before "changes = " go to the great bit bucket in the sky
@@ -68,7 +72,8 @@ class Changes:
     def __enter__(self):
       # set up our listening socket
       self._sock = socket.socket(socket.AF_UNIX, socket.SOCK_DGRAM)
-      self._sock.bind(tempfile.mktemp())
+      self._sock.bind(tempfile.mktemp(prefix="pg_replicate_%s" % (self._table,))) #XXX RACE CONDITION; mktemp.__doc__ specifically says "this function is unsafe"; however, how else to make a socket?
+        # also using the table name in the file name is probably poor form
       logging.info("listening for changes to %s on %s", self._table, self._sock.getsockname())
       
       # register ourselves with the source
