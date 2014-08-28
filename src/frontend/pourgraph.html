@@ -147,9 +147,13 @@ lets see if i can get a websocket talking to replicate.py, at least
    // see jsmpg for a more efficient implementation: https://github.com/phoboslab/jsmpeg/blob/master/jsmpg.js#L90
    
    // additionally, our use case is line-oriented---i.e. every DB update is fed to us as a line (owing to the unix source underneath)
+   // which is packet-style again!
+   // however we cannot at all rely on one kind of packet coinciding with the other, so we need to do stream reconstruction and then parsing
+   // and the API for this needs to be callback based, like everything in javascript
+   
    ws.buffer = "";
    ws.online = function(line) { //funcion handler for receiving a line
-   
+     console.log("delta event:", line);
    }
    ws.onmessage = function(evt) {
      // websockets
@@ -159,10 +163,20 @@ lets see if i can get a websocket talking to replicate.py, at least
      
      console.log(payload);
      
-     //buffer in
+     // stream reconstruction
      this.buffer += payload;
      
      //then read out every complete line
+     lines = this.buffer.split("\n");
+     // the *last* entry is the start of the next unfinished line;
+     // if the last character in buffer was a newline then split will return an empty string
+     // otherwise, a line got broken in the middle and we have the first half up to the break point
+     // pop() without arguments eats the last entry
+     this.buffer = lines.pop();
+     
+     lines.forEach(function(l) {
+       ws.online(l);
+     })
    }
    ws.onerror = function(evt) { 
      console.log("ws.error: ", evt);
