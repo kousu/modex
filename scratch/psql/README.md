@@ -28,6 +28,7 @@ $ ./client.sh    #open up postgres and set up some tables, e.g. the 'films' tabl
 $ cd modex/scratch/psql
 $ ./replicate_server.sh 8081 films  #in this case, ws://localhost:8081 will replicate table films
 ```
+The 8081 is important here, since that port number is hardcoded in the javscript.
 
 3) run the frontend
 ```

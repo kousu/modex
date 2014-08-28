@@ -28,6 +28,7 @@ lets see if i can get a websocket talking to replicate.py, at least
 
 -->
 
+<script src="/assets/libs/json2.js"></script>
 <script src="/assets/libs/underscore.js"></script>
 <script src="/assets/libs/pourover.js"></script>
 <script>
@@ -153,15 +154,14 @@ lets see if i can get a websocket talking to replicate.py, at least
    
    ws.buffer = "";
    ws.online = function(line) { //funcion handler for receiving a line
+     line = JSON.parse(line);
      console.log("delta event:", line);
    }
    ws.onmessage = function(evt) {
      // websockets
      // oh websockets..
      
-     payload = atob(evt.data); 
-     
-     console.log(payload);
+     payload = atob(evt.data);
      
      // stream reconstruction
      this.buffer += payload;
@@ -178,12 +178,15 @@ lets see if i can get a websocket talking to replicate.py, at least
        ws.online(l);
      })
    }
+   
    ws.onerror = function(evt) { 
      console.log("ws.error: ", evt);
    }
+   
    ws.onclose = function(evt) { 
      console.log("ws.close: ", evt);
    }
+   
 </script>
 
 </html>
