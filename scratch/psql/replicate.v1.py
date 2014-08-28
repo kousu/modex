@@ -10,6 +10,10 @@ shims which spool out all triggers.
 This is in python3
 watch.psql is mainly in python2
 This awkwardness will be massaged out later.
+
+
+NB: this was attempt 1; attempt 3, which turned out successful, is the pair of files replicate.py{,sql}.
+    this still has a lot of useful logic and structure in it, and should be merged in later.
 """
 
 
