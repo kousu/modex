@@ -8,6 +8,26 @@
 
 </body>
 
+<!--
+
+pourover is not at all what I thought it would be
+but I can probably work with it, though inefficiently
+ the trouble is that pourover is heavily designed around a single use case: dataset drilldown.
+  you can construct slices (MatchSets) and it has something it calls views which (using View.setSelection()) you can give particular subsets targets
+  but, every view is tied back to the single global set of "filters" (a filter essentially being an parameterized where clause--unapplyed (so e.g. you can have a filter that represents "where $1 in hobbies")), and each filter
+ But, I *can* replicate use its filtering 
+ 
+ i just want to load my data as needed!
+ I wonder how erlang handles this
+
+crossfilter is specifically a cross-filter: each crossfilter instance is *one* view; in particular, filtering on any dimension (i.e. object property) filters all the others too, so there's no way
+ at doing that one specific thing, though, an updateable view, it is excellent 
+
+lets see if i can get a websocket talking to replicate.py, at least
+ make a script that sucks less
+
+-->
+
 <script src="/assets/libs/underscore.js"></script>
 <script src="/assets/libs/pourover.js"></script>
 <script>
@@ -68,26 +88,38 @@
    // Stateful:   query() + .current_items 
    
    
-   var female_view = new PourOver.View("dsdffdsefault_view", collection);
-   collection.filters.sex.query("f")
+   var v1 = new PourOver.View("v1", collection);
+   v1.setSelection(collection.filters.sex.getFn("f"));
+   
+   
+   var v2 = new PourOver.View("v2", collection);
+   v2.setSelection(terror_monsters);
    // or (this is the primary designed use case), View.getCurrentItems()
-   console.log("female_view = ", female_view.getCurrentItems())
+   console.log("v1 = ", v1.getCurrentItems())
+   console.log("v2 = ", v2.getCurrentItems())
+   
+   v1.setNaturalSelection() // this runs selectionFn(), which by default is a function that takes 
+   console.log("v1 = ", v1.getCurrentItems())
+   console.log("v2 = ", v2.getCurrentItems())
    
    collection.on("change", function(e) {
      console.log("collection.change: The database is now ", collection, " and the event gave us this extra data: ", e);
    })
    
 
-   female_view.on("update", function(e) {
-     console.log("female_view.update: The females in mythology are now ", female_view, " and the event gave us this extra data: ", e);
-     console.log(female_view.getCurrentItems());
+   v1.on("update", function(e) {
+     console.log("female_view.update: The females in mythology are now ", v1, " and the event gave us this extra data: ", e);
+     console.log(v1.getCurrentItems());
    })
    
 
-   female_view.on("collection-change", function(e) { //view.change happens; however, it bubb
-     console.log("female_view.change: The females in mythology are now ", female_view, " and the event gave us this extra data: ", e);
-     console.log(female_view.getCurrentItems());
+   v1.on("collection-change", function(e) { //view.change happens; however, it bubb
+     console.log("female_view.change: The females in mythology are now ", v1, " and the event gave us this extra data: ", e);
+     console.log(v1.getCurrentItems());
    })
+   
+   
+   
    // It seeeeems (I haven't exhuastively read the code to check) that 'change' is meant for the data and 'update' is meant for views (i.e. when they are paged or a query is added or whatnot)
    //  To my mind filtering a view is a form of data update, but I can see why you might want to distinguish the cases.
    // Another confusing thing about the API: the docs claim you can have multiple views, however the only way to edit a view is by saying collection.filters.filter.query()--so shouldn't all views share the same??
@@ -105,6 +137,39 @@
    //  I've found that female_view.page(), however, will trigger the update handler (even if no change actually happened)
    
    console.log("All done");
+   
+   
+   console.log("websockets!")
+   var ws = new WebSocket("ws://" + location.hostname + ":8081", "base64");
+   
+   // websockets, despite being essentially TCP (a stream protocol)
+   // only give a packet-style interface
+   // see jsmpg for a more efficient implementation: https://github.com/phoboslab/jsmpeg/blob/master/jsmpg.js#L90
+   
+   // additionally, our use case is line-oriented---i.e. every DB update is fed to us as a line (owing to the unix source underneath)
+   ws.buffer = "";
+   ws.online = function(line) { //funcion handler for receiving a line
+   
+   }
+   ws.onmessage = function(evt) {
+     // websockets
+     // oh websockets..
+     
+     payload = atob(evt.data); 
+     
+     console.log(payload);
+     
+     //buffer in
+     this.buffer += payload;
+     
+     //then read out every complete line
+   }
+   ws.onerror = function(evt) { 
+     console.log("ws.error: ", evt);
+   }
+   ws.onclose = function(evt) { 
+     console.log("ws.close: ", evt);
+   }
 </script>
 
 </html>
