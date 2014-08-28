@@ -12,15 +12,40 @@ Quickstart
 
 To start, make sure you have installed python, postgresql with the pl/python extension, and 
 
+**warning: these instructions are not copypasteable. you need to think and understand before you use them**
+
+1) set up the database 
 ```
-$ initdb data
-$ ./server.sh
+$ cd modex/scratch/psql
+$ initdb data/ #initialize postgres('s data)
+$ ./server.sh  #start postgres
+$ ./client.sh < replicate.pysql #load the replicate.py hooks into postgres
+$ ./client.sh    #open up postgres and set up some tables, e.g. the 'films' table from test.sql
 ```
 
-To reset,
+2) run the websocket replication server
+```
+$ cd modex/scratch/psql
+$ ./replicate_server.sh 8081 films  #in this case, ws://localhost:8081 will replicate table films
+```
+
+3) run the frontend
+```
+$ cd modex/
+$ python -m SimpleHTTPServer  #or http.server for python3
+$ firefox http://localhost:8000/src/frontend/pourgraph.html
+```
+(and open up the js console to watch the action)
+
+4) apply some updates (e.g. the second batch of lines about films from test.sql)
+Any `INSERT`, `UPDATE` or `DELETE` done on the command line should immediately show up in your js console.
+
+
+To reset
 ```
 $ rm -r data/
 ```
+ and start at the top.
 
 Issues
 ------
