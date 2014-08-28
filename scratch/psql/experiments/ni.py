@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 #brutally forced attempt to get postgres to send the WAL logs;
 # this below gets as far as turning on the correct mode and sending the sub-protocol header line.
 # this is python3!
@@ -34,5 +35,7 @@ ss.send(MESSAGE)
 
 M = ss.recv(111)
 while M:
-	print(M)
+	print(M, flush=True)
 	M = ss.recv(111)
+
+import time; time.sleep(10)
