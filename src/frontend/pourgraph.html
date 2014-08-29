@@ -8,6 +8,29 @@
 
 </body>
 
+<!--
+
+pourover is not at all what I thought it would be
+but I can probably work with it, though inefficiently
+ the trouble is that pourover is heavily designed around a single use case: dataset drilldown.
+  you can construct slices (MatchSets) and it has something it calls views which (using View.setSelection()) you can give particular subsets targets
+  but, every view is tied back to the single global set of "filters" (a filter essentially being an parameterized where clause--unapplyed (so e.g. you can have a filter that represents "where $1 in hobbies")), and each filter
+ But, I *can* replicate use its filtering 
+
+another irritant: PourOver mutates the objects you give it, attaching a primary key (cid) to each.
+ 
+ i just want to load my data as needed!
+ I wonder how erlang handles this
+
+crossfilter is specifically a cross-filter: each crossfilter instance is *one* view; in particular, filtering on any dimension (i.e. object property) filters all the others too, so there's no way
+ at doing that one specific thing, though, an updateable view, it is excellent 
+
+lets see if i can get a websocket talking to replicate.py, at least
+ make a script that sucks less
+
+-->
+
+<script src="/assets/libs/json2.js"></script>
 <script src="/assets/libs/underscore.js"></script>
 <script src="/assets/libs/pourover.js"></script>
 <script>
@@ -33,6 +56,8 @@
  
  // does PourOver.UI help us?? is it new?
  
+ 
+ function pourover_tutorial() {
  var monsters = [{name: "sphinx", mythology: "greek", eyes: 2, sex: "f", hobbies: ["riddles","sitting","being a wonder"]},
                 {name: "hydra", mythology: "greek", eyes: 18, sex: "m", hobbies: ["coiling","terrorizing","growing"]},
                 {name: "huldra", mythology: "norse", eyes: 2, sex: "f", hobbies: ["luring","terrorizing"]},
@@ -68,26 +93,38 @@
    // Stateful:   query() + .current_items 
    
    
-   var female_view = new PourOver.View("dsdffdsefault_view", collection);
-   collection.filters.sex.query("f")
+   var v1 = new PourOver.View("v1", collection);
+   v1.setSelection(collection.filters.sex.getFn("f"));
+   
+   
+   var v2 = new PourOver.View("v2", collection);
+   v2.setSelection(terror_monsters);
    // or (this is the primary designed use case), View.getCurrentItems()
-   console.log("female_view = ", female_view.getCurrentItems())
+   console.log("v1 = ", v1.getCurrentItems())
+   console.log("v2 = ", v2.getCurrentItems())
+   
+   v1.setNaturalSelection() // this runs selectionFn(), which by default is a function that takes 
+   console.log("v1 = ", v1.getCurrentItems())
+   console.log("v2 = ", v2.getCurrentItems())
    
    collection.on("change", function(e) {
      console.log("collection.change: The database is now ", collection, " and the event gave us this extra data: ", e);
    })
    
 
-   female_view.on("update", function(e) {
-     console.log("female_view.update: The females in mythology are now ", female_view, " and the event gave us this extra data: ", e);
-     console.log(female_view.getCurrentItems());
+   v1.on("update", function(e) {
+     console.log("female_view.update: The females in mythology are now ", v1, " and the event gave us this extra data: ", e);
+     console.log(v1.getCurrentItems());
    })
    
 
-   female_view.on("collection-change", function(e) { //view.change happens; however, it bubb
-     console.log("female_view.change: The females in mythology are now ", female_view, " and the event gave us this extra data: ", e);
-     console.log(female_view.getCurrentItems());
+   v1.on("collection-change", function(e) { //view.change happens; however, it bubb
+     console.log("female_view.change: The females in mythology are now ", v1, " and the event gave us this extra data: ", e);
+     console.log(v1.getCurrentItems());
    })
+   
+   
+   
    // It seeeeems (I haven't exhuastively read the code to check) that 'change' is meant for the data and 'update' is meant for views (i.e. when they are paged or a query is added or whatnot)
    //  To my mind filtering a view is a form of data update, but I can see why you might want to distinguish the cases.
    // Another confusing thing about the API: the docs claim you can have multiple views, however the only way to edit a view is by saying collection.filters.filter.query()--so shouldn't all views share the same??
@@ -99,12 +136,128 @@
    console.log("Adding ", norns)
    collection.addItems(norns)
    
+   console.log("All done");
+   }
+   
    // oh interesting: PourOver mutates the objects you give it, appending cids; if you want to keep them pure... well, I guess you can use cloning. Though it is unlike you would want to double your memory usage for no reason.
    
    // argh. PourOver is not behaving. I expect that addItems() should eventually bubble (and skimming the source implies this is how it is)
    //  I've found that female_view.page(), however, will trigger the update handler (even if no change actually happened)
    
-   console.log("All done");
+   
+   function Lines(address) {
+      
+   // websockets, despite being essentially TCP (a stream protocol)
+   // only give a packet-style interface
+   // see jsmpg for a more efficient implementation: https://github.com/phoboslab/jsmpeg/blob/master/jsmpg.js#L90
+   
+   // additionally, our use case is line-oriented---i.e. every DB update is fed to us as a line (owing to the unix source underneath)
+   // which is packet-style again!
+   // however we cannot at all rely on one kind of packet coinciding with the other, so we need to do stream reconstruction and then parsing
+   // and the API for this needs to be callback based, like everything in javascript
+   
+   // This class encapsulates all this cruft
+   
+     var self = this; //js scoping rules mean that 'this' refers to the object the function, so the e.g. onmessage event handler gets the Changes 'this' stomped on
+     
+     this.ws = new WebSocket(address, "base64"); //we could also use 'binary' transfer mode, which changes some details below. we cannot use the plain mode because websockify denies it.
+     this.buffer = "";
+     
+     this.ws.onmessage = function(evt) {
+     // websockets
+     // oh websockets..
+     
+       var payload = atob(evt.data); //extract from base64,
+     
+       // stream reconstruction
+       self.buffer += payload;
+     
+       //then read out every complete line
+       var lines = self.buffer.split("\n");
+       // the *last* entry is the start of the next unfinished line;
+       // if the last character in buffer was a newline then split will return an empty string
+       // otherwise, a line got broken in the middle and we have the first half up to the break point
+       // pop() without arguments eats the last entry
+       self.buffer = lines.pop();
+     
+       lines.forEach(function(l) {
+         self.trigger("line", l);
+       })
+     }
+     
+     this.ws.onerror = function(evt) { 
+       //console.log("ws.error: ", evt);
+       self.trigger("error", evt);
+     }
+     
+     this.ws.onclose = function(evt) { 
+       //console.log("ws.close: ", evt);
+       self.trigger("close");
+     }
+   }
+   _.extend(Lines.prototype, PourOver.Events, {
+     close: function() {
+       this.ws.close();
+     }
+   });
+   
+   
+   function ReplicatedTable(name, address) {  //this should be a mixin onto PourOver.Collection, or maybe it should be the ReplicatorProcess which sits and and you give a PourOver.Collection to at construction
+     var self = this;
+     
+     self.name = name;
+     self.collection = new PourOver.Collection([]);
+     
+     var feed = new Lines(address);
+     feed.on("line", function(line) {
+       delta = JSON.parse(line);
+       
+       // process the event
+       // In (preliminary) HRDJ updates are simply a delete followed by an insert
+       //  so we 
+       // In the future, updates may be handled more specially
+       // For now, process deletes before inserts, in echo of the future code which will have to handle deletes and updates both by first scanning the table for the row to delete
+       
+       if(delta["-"]) {
+         
+         self.collection.removeItems(delta["-"]);
+         // The way we handle  is madly inefficient; PourOver requires removed items to be the mutated items 
+         // but the backend
+         // So, we do one scan (.find()), and then once the item is found, internally PourOver does another scan, copying every item except the unfortunate soul into a new set
+         var unfortunate_soul = _(self.collection.items).find(function(e) {
+           e = _.clone(e);
+           delete e.cid;
+           return _.isEqual(e, delta["-"]);
+         })
+         
+         if(unfortunate_soul) {
+           self.collection.removeItems(unfortunate_soul);
+         }
+       }
+       
+       if(delta["+"]) {
+         self.collection.addItems(delta["+"]);
+       }
+       
+       self.trigger("update", delta);
+     })
+     
+   }
+   _.extend(ReplicatedTable.prototype, PourOver.Events, {
+   });
+   
+   
+   films = new ReplicatedTable("films", "ws://" + location.hostname + ":8081");
+   films.on("update", function(evt) {
+     console.log("The Films are now ", JSON.stringify(films.collection.getAllItems().all()))
+   })
+   
+   
+   
+   
+   
+   
+   
 </script>
 
 </html>

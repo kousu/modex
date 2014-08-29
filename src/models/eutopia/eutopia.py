@@ -523,8 +523,19 @@ def main(n=50, db=None, plot=True):
     print("good bye!")
 
 if __name__=='__main__':
-    db = None
+    # usage: eutopia.py
+    #        eutopia.py path/to/db.sqlite
+    #        eutopia.py postgresql://localhost/postgres
+    #  -- rule: you can give a; as a special case, if you do not give a proper URL, your address will be interpreted as a path for a sqlite file
+    #   if db.sqlite is not given, uses the default temporary in-memory sqlite database
     import sys
+    
+    db = None
     if len(sys.argv) > 1:
-        db = "sqlite:///" + sys.argv[1] #construct
+        db = sys.argv[1]
+        if "://" in db:
+            pass
+        else:
+            db = "sqlite:///" + db
+    
     main(db=db)
