@@ -523,6 +523,8 @@ def main(n=50, db=None, plot=True):
     print("good bye!")
 
 if __name__=='__main__':
+    # usage: eutopia.py [db.sqlite]
+    #   if db.sqlite is not given, uses the default temporary in-memory sqlite database
     db = None
     import sys
     if len(sys.argv) > 1:
