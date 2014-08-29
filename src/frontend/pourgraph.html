@@ -224,7 +224,7 @@ lets see if i can get a websocket talking to replicate.py, at least
          // The way we handle  is madly inefficient; PourOver requires removed items to be the mutated items 
          // but the backend
          // So, we do one scan (.find()), and then once the item is found, internally PourOver does another scan, copying every item except the unfortunate soul into a new set
-         var unfortunate_soul = self.collection.items.find(function(e) {
+         var unfortunate_soul = _(self.collection.items).find(function(e) {
            e = _.clone(e);
            delete e.cid;
            return _.isEqual(e, delta["-"]);
