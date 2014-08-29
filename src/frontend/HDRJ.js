@@ -3,6 +3,12 @@
  *
  * 
  */
+
+/* TODO:
+ *    - either make Backbone a dependency, or use a different events system.
+ *    - finish that WebSocketMultiplexer and WebSocketRealm idea so that each table can have a distinct URL and we are not limited to replicating 6 tables ((we could write the multiplexing inline with HDRJ---so that HDRJ sends {"table": {"+": row}} instead, but I would rather solve multiplexing once, properly, and reuse it))
+ *
+ */
  
   
 function WebSocketLines(address) {
@@ -105,6 +111,42 @@ function WebSocketLines(address) {
 //  because--at least to some degree (be mindful of PourOver's point that hitting the server on every query is wasteful!)--
 // The best in the long term would be to be able to treat the javascript database as a memoization cache; with items stored when asked for, with old items being evicted.
 
+
+function HDRJ(address) {
+    /* Parses changes coming off an HDRJ source.
+     *
+     * API:
+     *  .on("insert", )
+     *  .on("update", )
+     *  .on("delete", ) 
+     *
+     * The justification for this class is that we don't yet know which storage option we'll be using, but they will *all* need these lines
+     * However, ironically this class makes it impossible to perform the (premature?) optimization that HDRJ was designed for:
+        - any "-" implies a table scan, whether the "-" is in a delete or in an update
+     */
+     
+    var self = this;
+    
+    var feed = new WebSocketLines(address);
+    feed.on("line", function(line) {
+        delta = JSON.parse(line);
+        if(delta["-"]) {
+            if(delta["+"]) {
+                self.trigger("update", delta["-"], delta["+"]);
+            } else {
+                self.trigger("delete", delta["-"]);
+            }
+        } else if(delta["+"]) {
+          self.trigger("insert", delta["+"]);
+        }
+    });
+}
+_.extend(HDRJ.prototype, PourOver.Events, {
+   });
+
+
+
+
 function HDRJPourOver(name, address) {  //this should be a mixin onto PourOver.Collection, or maybe it should be the ReplicatorProcess which sits and and you give a PourOver.Collection to at construction
      // XXX BEWARE: in the case that your dataset does not have primary keys on it, duplicate rows are legal, so if you get a message to remove a row you need to be careful to *only remove one*
    
@@ -113,41 +155,50 @@ function HDRJPourOver(name, address) {  //this should be a mixin onto PourOver.C
      self.name = name;
      self.collection = new PourOver.Collection([]);
      
-     var feed = new WebSocketLines(address);
+     var feed = new HDRJ(address);
      self._feed = feed; //mostly for debugging
      
-     feed.on("line", function(line) {
-       delta = JSON.parse(line);
-       
-       // process the change
-       // In (preliminary) HRDJ updates are simply a delete followed by an insert
-       //  so we 
-       // In the future, updates may be special cased to only send the changed elements.
-       // In any event, seeing a "-" implies getting
-       // For now, process deletes before inserts, in echo of the future code which will have to handle deletes and updates both by first scanning the table for the row to delete
-       
-       if(delta["-"]) {
+     function addItem(row) {
+         self.collection.addItems(row);
+     }
+     
+     function removeItem(row) {
+         // PourOver.Collection.removeItems() deletes by PourOver CID,
+         // and so requires items that it has mutated--marked with CIDs--
+         // and copied into itself.
+         // but the backend doesn't know anything about PourOver CIDs and so cannot possibly provide this
+         // The way we handle is madly inefficient:
+         //   we do one scan (.find()), and then once the item is found,
+         //   internally PourOver does another scan, copying every item except
+         //   the unfortunate soul into a new set.
          
-         self.collection.removeItems(delta["-"]);
-         // The way we handle  is madly inefficient; PourOver requires removed items to be the mutated items 
-         // but the backend
-         // So, we do one scan (.find()), and then once the item is found, internally PourOver does another scan, copying every item except the unfortunate soul into a new set
-         var unfortunate_soul = _(self.collection.items).find(function(e) {
-           e = _.clone(e);
-           delete e.cid;
-           return _.isEqual(e, delta["-"]);
+         var unfortunate_soul = _(self.collection.items).find(function(pourover_item) {
+           // we search for item equality by undoing PourOver's mutation and comparing that
+           pourover_item = _.clone(pourover_item); //use clone() so we don't stomp; IF we can atomicity (which I think we can, in javascript?) it would be faster and safe to unmutate e directly and then mutate it again
+           delete pourover_item.cid;
+           
+           return _.isEqual(pourover_item, row);
          })
          
          if(unfortunate_soul) {
            self.collection.removeItems(unfortunate_soul);
          }
-       }
-       
-       if(delta["+"]) {
-         self.collection.addItems(delta["+"]);
-       }
-       
-       self.trigger("update", delta);
+     }
+     
+     feed.on("insert", function(row) {
+         addItem(row);
+         self.trigger("update");  //TODO: tag useful data along with this event
+     })
+     
+     feed.on("update", function(old_row, new_row) {
+         removeItem(old_row);
+         addItem(new_row);
+         self.trigger("update");  //TODO: tag useful data along with this event
+     })
+     
+     feed.on("delete", function(row) {
+         removeItem(row);
+         self.trigger("update");  //TODO: tag useful data along with this event
      })
      
    }
