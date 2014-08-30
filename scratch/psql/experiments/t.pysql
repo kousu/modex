@@ -1,0 +1,165 @@
+
+DO $$
+print("One")
+import sys
+print(sys.executable)
+print(sys.path)
+print("-"*10)
+$$ language plpython2u;
+
+
+
+
+
+DO $$
+pass
+print("Two")
+import os
+print(dir(os))
+print(os.ttyname(0))
+print(os.tmpnam())
+#print(os.urandom) # this crashes
+
+#import random
+#print(random.getrandbits(10))
+print("-"*10)
+
+$$ language plpython2u;
+
+DO $$
+print("Three")
+from posix import urandom
+print("-"*10)
+
+$$ language plpython2u;
+
+DO $$
+print("Four")
+from os import O_RDONLY
+aURandom = open("/dev/urandom", "r")
+print(aURandom.read(10))
+print("-"*10)
+$$ language plpython2u;
+
+-- the problem is i can't dynload anything properly
+DO $$
+print("Five")
+
+dyn_modules = """
+MacOS.so
+Nav.so
+OSATerminology.so
+_AE.so
+_AH.so
+_App.so
+_CF.so
+_CG.so
+_CarbonEvt.so
+_Cm.so
+_Ctl.so
+_Dlg.so
+_Drag.so
+_Evt.so
+_File.so
+_Fm.so
+_Folder.so
+_Help.so
+_IBCarbon.so
+_Icn.so
+_Launch.so
+_List.so
+_Menu.so
+_Mlte.so
+_OSA.so
+_Qd.so
+_Qdoffs.so
+_Qt.so
+_Res.so
+_Scrap.so
+_Snd.so
+_TE.so
+_Win.so
+_bisect.so
+_codecs_cn.so
+_codecs_hk.so
+_codecs_iso2022.so
+_codecs_jp.so
+_codecs_kr.so
+_codecs_tw.so
+_collections.so
+_csv.so
+_ctypes.so
+_ctypes_test.so
+_curses.so
+_curses_panel.so
+_elementtree.so
+_functools.so
+_hashlib.so
+_heapq.so
+_hotshot.so
+_io.so
+_json.so
+_locale.so
+_lsprof.so
+_multibytecodec.so
+_multiprocessing.so
+_random.so
+_scproxy.so
+_socket.so
+_sqlite3.so
+_ssl.so
+_struct.so
+_testcapi.so
+_tkinter.so
+array.so
+audioop.so
+autoGIL.so
+binascii.so
+bsddb185.so
+bz2.so
+cPickle.so
+cStringIO.so
+cmath.so
+crypt.so
+datetime.so
+dbm.so
+fcntl.so
+future_builtins.so
+gdbm.so
+gestalt.so
+grp.so
+icglue.so
+itertools.so
+math.so
+mmap.so
+nis.so
+operator.so
+parser.so
+pyexpat.so
+readline.so
+resource.so
+select.so
+strop.so
+syslog.so
+termios.so
+time.so
+unicodedata.so
+zlib.so
+"""
+dyn_modules = dyn_modules.split("\n")
+
+for m in dyn_modules:
+   m = m.replace(".so","").strip()
+   if not m: continue
+   print "Attempting to load |%s|" % m
+   import importlib
+   try:
+      M = importlib.import_module(m)
+      print "--> succeeded"
+   except ImportError:
+      print "--> failed"
+   
+
+print("-"*10)
+
+$$ language plpython2u;
