@@ -187,18 +187,18 @@ function HDRJPourOver(name, address) {  //this should be a mixin onto PourOver.C
      
      feed.on("insert", function(row) {
          addItem(row);
-         self.trigger("update");  //TODO: tag useful data along with this event
+         self.trigger("change");  //TODO: tag useful data along with this event
      })
      
      feed.on("update", function(old_row, new_row) {
          removeItem(old_row);
          addItem(new_row);
-         self.trigger("update");  //TODO: tag useful data along with this event
+         self.trigger("change");  //TODO: tag useful data along with this event
      })
      
      feed.on("delete", function(row) {
          removeItem(row);
-         self.trigger("update");  //TODO: tag useful data along with this event
+         self.trigger("change");  //TODO: tag useful data along with this event
      })
      
    }
