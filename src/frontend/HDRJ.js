@@ -206,9 +206,26 @@ function HDRJPourOver(name, address) {  //this should be a mixin onto PourOver.C
    });
    
    
-function HRDJArray(address) {
-
-}
 
 
+
+/*
+ I want a library that does dataflow for sets, with caching
+  this must exist somewhere!! but not even Elm necessarily provides what I want, because while Elm will only do computation on updates, a naive implementation in Elm would still do a rescan on each update.
+ 
+ var films = HDRJArray("ws://...>")
+ 
+ // do i want to even bother distinguishing a view and a select?
+ //  the only difference would be that a select does not register itself for updates
+ 
+ 
+ runs = films.select(unique("run_id"))
+ 
+ // user selects a run...
+ run = prompt() # <-- not actually; has to be done with a GUI and some callbacks
+ 
+ var current_run = films.View(Predicates.exact("run_id", run))
+ 
+ 
+*/
 

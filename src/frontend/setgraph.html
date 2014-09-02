@@ -1,0 +1,54 @@
+<html>
+<head>
+<title> Dynamic Linegraph backed by PourOver [backed by websockets backed by replicate.py backed by a simulation] </title>
+</head>
+
+<body>
+
+
+</body>
+
+<!--
+
+pourover is not at all what I thought it would be
+but I can probably work with it, though inefficiently
+ the trouble is that pourover is heavily designed around a single use case: dataset drilldown.
+  you can construct slices (MatchSets) and it has something it calls views which (using View.setSelection()) you can give particular subsets targets
+  but, every view is tied back to the single global set of "filters" (a filter essentially being an parameterized where clause--unapplyed (so e.g. you can have a filter that represents "where $1 in hobbies")), and each filter
+ But, I *can* replicate use its filtering 
+
+another irritant: PourOver mutates the objects you give it, attaching a primary key (cid) to each.
+ 
+ i just want to load my data as needed!
+ I wonder how erlang handles this
+
+crossfilter is specifically a cross-filter: each crossfilter instance is *one* view; in particular, filtering on any dimension (i.e. object property) filters all the others too, so there's no way
+ at doing that one specific thing, though, an updateable view, it is excellent 
+
+lets see if i can get a websocket talking to replicate.py, at least
+ make a script that sucks less
+
+-->
+
+<script src="/assets/libs/json2.js"></script>
+<script src="/assets/libs/underscore.js"></script>
+<script src="/assets/libs/pourover.js"></script>
+<script src="cacheset.js"></script>
+<script src="HDRJ.js"></script>
+<script>
+   
+   
+ films = new HDRJCacheSet("films", "ws://" + location.hostname + ":8081");
+  films.on("update", function(evt) {
+    console.log("The Films are now ", JSON.stringify(films._cache))
+ })
+   
+   
+   
+   
+   
+   
+   
+</script>
+
+</html>
