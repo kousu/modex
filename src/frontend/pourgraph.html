@@ -150,7 +150,7 @@ lets see if i can get a websocket talking to replicate.py, at least
    
    
    films = new HDRJPourOver("films", "ws://" + location.hostname + ":8081");
-   films.on("update", function(evt) {
+   films.on("change", function(evt) {
      console.log("The Films are now ", JSON.stringify(films.collection.getAllItems().all()))
    })
    
