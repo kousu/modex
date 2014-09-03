@@ -33,6 +33,7 @@ lets see if i can get a websocket talking to replicate.py, at least
 <script src="/assets/libs/json2.js"></script>
 <script src="/assets/libs/underscore.js"></script>
 <script src="/assets/libs/pourover.js"></script>
+<script src="HDRJ.js"></script>
 <script>
 /*
  * plan:
@@ -145,110 +146,11 @@ lets see if i can get a websocket talking to replicate.py, at least
    //  I've found that female_view.page(), however, will trigger the update handler (even if no change actually happened)
    
    
-   function Lines(address) {
-      
-   // websockets, despite being essentially TCP (a stream protocol)
-   // only give a packet-style interface
-   // see jsmpg for a more efficient implementation: https://github.com/phoboslab/jsmpeg/blob/master/jsmpg.js#L90
-   
-   // additionally, our use case is line-oriented---i.e. every DB update is fed to us as a line (owing to the unix source underneath)
-   // which is packet-style again!
-   // however we cannot at all rely on one kind of packet coinciding with the other, so we need to do stream reconstruction and then parsing
-   // and the API for this needs to be callback based, like everything in javascript
-   
-   // This class encapsulates all this cruft
-   
-     var self = this; //js scoping rules mean that 'this' refers to the object the function, so the e.g. onmessage event handler gets the Changes 'this' stomped on
-     
-     this.ws = new WebSocket(address, "base64"); //we could also use 'binary' transfer mode, which changes some details below. we cannot use the plain mode because websockify denies it.
-     this.buffer = "";
-     
-     this.ws.onmessage = function(evt) {
-     // websockets
-     // oh websockets..
-     
-       var payload = atob(evt.data); //extract from base64,
-     
-       // stream reconstruction
-       self.buffer += payload;
-     
-       //then read out every complete line
-       var lines = self.buffer.split("\n");
-       // the *last* entry is the start of the next unfinished line;
-       // if the last character in buffer was a newline then split will return an empty string
-       // otherwise, a line got broken in the middle and we have the first half up to the break point
-       // pop() without arguments eats the last entry
-       self.buffer = lines.pop();
-     
-       lines.forEach(function(l) {
-         self.trigger("line", l);
-       })
-     }
-     
-     this.ws.onerror = function(evt) { 
-       //console.log("ws.error: ", evt);
-       self.trigger("error", evt);
-     }
-     
-     this.ws.onclose = function(evt) { 
-       //console.log("ws.close: ", evt);
-       self.trigger("close");
-     }
-   }
-   _.extend(Lines.prototype, PourOver.Events, {
-     close: function() {
-       this.ws.close();
-     }
-   });
    
    
-   function ReplicatedTable(name, address) {  //this should be a mixin onto PourOver.Collection, or maybe it should be the ReplicatorProcess which sits and and you give a PourOver.Collection to at construction
-     var self = this;
-     
-     self.name = name;
-     self.collection = new PourOver.Collection([]);
-     
-     var feed = new Lines(address);
-     feed.on("line", function(line) {
-       delta = JSON.parse(line);
-       
-       // process the event
-       // In (preliminary) HRDJ updates are simply a delete followed by an insert
-       //  so we 
-       // In the future, updates may be handled more specially
-       // For now, process deletes before inserts, in echo of the future code which will have to handle deletes and updates both by first scanning the table for the row to delete
-       
-       if(delta["-"]) {
-         
-         self.collection.removeItems(delta["-"]);
-         // The way we handle  is madly inefficient; PourOver requires removed items to be the mutated items 
-         // but the backend
-         // So, we do one scan (.find()), and then once the item is found, internally PourOver does another scan, copying every item except the unfortunate soul into a new set
-         var unfortunate_soul = _(self.collection.items).find(function(e) {
-           e = _.clone(e);
-           delete e.cid;
-           return _.isEqual(e, delta["-"]);
-         })
-         
-         if(unfortunate_soul) {
-           self.collection.removeItems(unfortunate_soul);
-         }
-       }
-       
-       if(delta["+"]) {
-         self.collection.addItems(delta["+"]);
-       }
-       
-       self.trigger("update", delta);
-     })
-     
-   }
-   _.extend(ReplicatedTable.prototype, PourOver.Events, {
-   });
    
-   
-   films = new ReplicatedTable("films", "ws://" + location.hostname + ":8081");
-   films.on("update", function(evt) {
+   films = new HDRJPourOver("films", "ws://" + location.hostname + ":8081");
+   films.on("change", function(evt) {
      console.log("The Films are now ", JSON.stringify(films.collection.getAllItems().all()))
    })
    
