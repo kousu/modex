@@ -3,7 +3,9 @@
 --  also, this implementation is tuned to solve the specific problem of replicating to the web 
 -- while 9.4 has Logical Replication, it a) conflicts with b) demands you poll (whereas CouchDB, whose filtered replication feature is what I'm trying to implement, [supports](http://couchdb.readthedocs.org/en/latest/replication/protocol.html#filter-replication) both pull ((long-)polling mode (the details of the long-polling variant are irrelevant to us; it's simply a workaround for HTTP being stupid, which we sidestep by not using HTTP at all)) and push ("streaming mode")
 
-
+-- TODO:
+--  [ ] Install these hooks into a spare tablespace
+--  [ ] Make sure these hooks can be deployed to production servers
 
 CREATE OR REPLACE LANGUAGE plpython2u;
 

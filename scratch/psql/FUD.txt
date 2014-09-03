@@ -45,3 +45,13 @@ http://momjian.us/main/writings/pgsql/features.pdf=
 useful knowledge:
  - you cannot DROP FUNCTION if the function is currently attached as a trigger, however you can CREATE OR REPLACE that function and it will update the trigger
  - 
+ 
+ 
+ =---------------
+ 
+ Intriguing! Building materialized views out of stored procedures in MySQL:
+ http://www.fromdual.com/mysql-materialized-views
+  that demo does it three ways:
+   1) on demand refreshing (equivalent to postgres's REFRESH MATERIALIZED VIEW and a form of polling)
+   2) per-transaction refreshing (equivalent to a sort of dataflow)
+   3) logged updates (equivalent to journalling as in ext3 and ntfs, and the WAL in Postgres)
