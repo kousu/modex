@@ -5,6 +5,7 @@
  
  * The main concept here is the caching, which is a lot like postgres's materialized view; but unlike postgres's implementation, this does edge-triggered processing: it reacts to changes pushed from a source instead of having to poll a source to get a complete new copy.
  *
+ * Dependent types listen to their parent's "insert" and "delete" events; when a parent's cache is updated it fires an event, which causes a chain reaction of dependees to check if they should update their cache, and fire their events.
  *
  *
  */ 
@@ -76,7 +77,7 @@ function remove(self, e) {
  */
 function CacheSet(seed) {
   // if 'new' was not used
-  if(! (this instanceof CacheSet)) return new CacheSet();
+  if(! (this instanceof CacheSet)) return new CacheSet(seed);
   
   if(seed === null) { seed = new Array(); }
   this._cache = seed.slice(0); //shallow copy the seed array
@@ -111,7 +112,7 @@ CacheSet.prototype.subset = function(pred) {
 function SubSet(parent, pred) {
 
   // if 'new' was not used
-  if(! (this instanceof SubSet)) return new SubSet();
+  if(! (this instanceof SubSet)) return new SubSet(parent, pred);
   
   //XXX this would be more elegant if it was a subclass of CacheSet,
   // but I don't know how to do js inheritance properly
@@ -152,27 +153,85 @@ SubSet.prototype.subset = function(pred) {
 _.extend(SubSet.prototype, PourOver.Events);
 
 
+// TODO: write a o_cmp which can be used by Array.sort() to order objects; by default, sort() misbehaves on objects
+
+function And(A, B) {
+  // if 'new' was not used
+  if(! (this instanceof And)) return new And(A, B);
+  var self = this;
+  
+  self._A = A;
+  self._B = B;
+  
+  // Compute (A and B) as [e for e in A if e in B]
+  //TODO: exploit sorting to make this faster
+  // as written, this is an O(n^2) step
+  self._cache = self._A._cache.filter(function(a) {
+    return self._B._cache.indexOf(a) != -1;
+  });
+    
+}
+
+function Or(A, B) {
+  if(! (this instanceof Or)) return new Or(A, B);
+  var self = this;
+  
+  self._A = A;
+  self._B = B;
+  
+  // Compute (A or B) as (A concat B) - (A and B) ((where this set- only removes *one* copy per item))
+  //TODO: exploit sorting to make this faster
+  // as written, this is an O(n^2) step
+  // in fact, it's *even worse* here than in And(), since not only is there the n^2 And step, then there's a tedious n^2 filtering out step
+  // this pains me so much
+  
+  self._cache = self._A._cache.concat(self._B._cache);
+  intersection = self._A._cache.filter(function(a) {
+    return self._B._cache.indexOf(a) != -1;
+  });
+  
+  console.log("naive unioning left", intersection, " duplicated; erasing");
+  // remove exactly one copy of each intersection element from the cache    
+  for(i = 0; i<intersection.length; i++) {
+    e = intersection[i];
+    t = self._cache.indexOf(e);
+    self._cache.splice(t, 1);
+  }
+  
+}
+
+
 // TODO: implement all the PourOver filters as functions that construct predicates and then return a SubSet
 // TODO: implement view disposal
 
 var monsters = [{name: "sphinx", mythology: "greek", eyes: 2, sex: "f", hobbies: ["riddles","sitting","being a wonder"]},
                 {name: "hydra", mythology: "greek", eyes: 18, sex: "m", hobbies: ["coiling","terrorizing","growing"]},
                 {name: "huldra", mythology: "norse", eyes: 2, sex: "f", hobbies: ["luring","terrorizing"]},
-                {name: "cyclops", mythology: "greek", eyes: 1, sex: "m", hobbies: ["staring","terrorizing"]},
-                {name: "fenrir", mythology: "norse", eyes: 2, sex: "m", hobbies: ["growing","god-killing"]},
+                {name: "cyclops", mythology: "greek", eyes: 1, sex: "m", hobbies: ["staring","terrorizing","sitting"]},
+                {name: "fenrir", mythology: "norse", eyes: 2, sex: "m", hobbies: ["growing","god-killing","sitting"]},
                 {name: "medusa",  mythology: "greek", eyes: 2, sex: "f", hobbies: ["coiling","staring"]}];
 var P = new CacheSet(monsters);
 
+function setstr(s) {
+  return _.pluck(s._cache, "name")
+}
 
 console.log(P);
 
 var norse_monsters = P.subset(function(m) { return m.mythology == "norse" });
-
-console.log(norse_monsters);
-
+var sitting_monsters = P.subset(function(m) { return m.hobbies.indexOf("sitting") != -1 });
 
 
+console.log("norse_monsters = ", setstr(norse_monsters));
+console.log("sitting_monsters = ", setstr(sitting_monsters));
 
+var norse_and_sitting = new And(norse_monsters, sitting_monsters);
+console.log("norse AND sitting = ", setstr(norse_and_sitting));
+
+var norse_or_sitting = new Or(norse_monsters, sitting_monsters);
+console.log("norse OR sitting = ", setstr(norse_or_sitting));
+
+// all the norse monsters also sit.
 
 
 
