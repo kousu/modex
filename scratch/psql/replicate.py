@@ -35,6 +35,14 @@ Concurrency bugs:
  
 """
 
+import os
+
+# there's deployment issues on OS X:
+# http://stackoverflow.com/questions/16407995/psycopg2-image-not-found
+os.environ["DYLD_LIBRARY_PATH"] = "/Applications/Postgres.app/Contents/Versions/9.3/lib/" 
+#+ ":" + os.environ.setdefault("DYLD_LIBRARY_PATH","")
+import psycopg2
+
 import sqlalchemy
 
 
@@ -182,7 +190,8 @@ if __name__ == '__main__':
     table = sys.argv[1]
     
     for delta in replicate(table):
-        print(delta, flush=True)
+        #print(delta, flush=True) #py3
+        print delta; sys.stdout.flush() #py2
     
     # NOTREACHED
     

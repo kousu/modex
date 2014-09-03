@@ -14,7 +14,7 @@
 PORT="$1"
 TABLE="$2"
 
-SERVER="./replicate.py ${TABLE}"
+SERVER="./replicate.sh ${TABLE}"
 
 # rather than use up a TCP port for the websockify <--> socat connection
 # use a unix domain socket instead
