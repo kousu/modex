@@ -147,7 +147,7 @@ _.extend(HDRJ.prototype, PourOver.Events, {
 
 
 
-function HDRJPourOver(name, address) {  //this should be a mixin onto PourOver.Collection, or maybe it should be the ReplicatorProcess which sits and and you give a PourOver.Collection to at construction
+function HDRJPourOver(address) {  //this should be a mixin onto PourOver.Collection, or maybe it should be the ReplicatorProcess which sits and and you give a PourOver.Collection to at construction
      // XXX BEWARE: in the case that your dataset does not have primary keys on it, duplicate rows are legal, so if you get a message to remove a row you need to be careful to *only remove one*
    
      var self = this;
@@ -202,8 +202,8 @@ function HDRJPourOver(name, address) {  //this should be a mixin onto PourOver.C
      })
      
    }
-   _.extend(HDRJPourOver.prototype, PourOver.Events, {
-   });
+_.extend(HDRJPourOver.prototype, PourOver.Events, {
+});
    
    
 
