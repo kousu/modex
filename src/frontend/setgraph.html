@@ -37,76 +37,42 @@ lets see if i can get a websocket talking to replicate.py, at least
 <script src="cacheset.js"></script>
 <script src="HDRJ.js"></script>
 <script>
-   
- function HDRJCacheSet(address, set) {  //this should be a mixin onto PourOver.Collection, or maybe it should be the ReplicatorProcess which sits and and you give a PourOver.Collection to at construction
-     // XXX BEWARE: in the case that your dataset does not have primary keys on it, duplicate rows are legal, so if you get a message to remove a row you need to be careful to *only remove one*
-   
-     var self = this;
-     
-     self.name = name;
-     self.collection = set;
-     
-     var feed = new HDRJ(address);
-     self._feed = feed; //mostly for debugging
-     
-     
-     function addItem(row) {
-         self.collection.insert(row);
-     }
-     
-     function removeItem(row) {
-         // PourOver.Collection.removeItems() deletes by PourOver CID,
-         // and so requires items that it has mutated--marked with CIDs--
-         // and copied into itself.
-         // but the backend doesn't know anything about PourOver CIDs and so cannot possibly provide this
-         // The way we handle is madly inefficient:
-         //   we do one scan (.find()), and then once the item is found,
-         //   internally PourOver does another scan, copying every item except
-         //   the unfortunate soul into a new set.
-         
-         // at this layer we use underscore's expensive isEqual() function because equivalent items coming out of JSON.parse() (which HDRJ does) will not be considered == nor === by javascript.
-         var unfortunate_soul = _(self.collection._cache).find(function(g) {
-           return _.isEqual(g, row);
-         })
-         
-         if(unfortunate_soul) {
-           self.collection.delete(unfortunate_soul);
-         }
-     }
-     
-     feed.on("insert", function(row) {
-         addItem(row);
-         self.trigger("change");  //TODO: tag useful data along with this event
-     })
-     
-     feed.on("update", function(old_row, new_row) {
-         removeItem(old_row);
-         addItem(new_row);
-         self.trigger("change");  //TODO: tag useful data along with this event
-     })
-     
-     feed.on("delete", function(row) {
-         removeItem(row);
-         self.trigger("change");  //TODO: tag useful data along with this event
-     })
-     
-   }
-_.extend(HDRJCacheSet.prototype, PourOver.Events, {
-});
 
+/* HDRJCacheSet: extend CacheSet to listen to a HDRJ feed 
+ *   the address should be a websocket (ws:// or wss://) URL where a replicate.py server is listening.
+ */
+// XXX is it possible to write this as a mixin? it would require some way to hook the constructor.
+function HDRJCacheSet(address) {
+    var set = new CacheSet([]);
+    var feed = new HDRJ(address);
+    
+    feed.on("insert", function(row) {
+        set.insert(row);
+    })
 
-// TODO: write HDRJCacheSet as a subclass of cacheset(?)
-   
+    feed.on("update", function(old_row, new_row) {
+        set.delete(old_row);
+        set.insert(new_row);
+    })
 
- var films = new CacheSet([]);
- var films_tracker = new HDRJCacheSet("ws://" + location.hostname + ":8081", films);
- films_tracker.on("change", function(evt) {
-    console.log("The Films are now ", JSON.stringify(films._cache))
+    feed.on("delete", function(row) {
+        set.delete(row);
+    })
+
+    return set;
+}
+
+ var DB = new HDRJCacheSet("ws://" + location.hostname + ":8081");
+ DB.on("rerender", function() {
+    //console.log("The Films are now ", JSON.stringify(films._cache))
+    console.log("Now have",this._cache.length, "rows.");
  })
  
- var wheat = new Select(films, ["time", "durumWheatConventional"])
- var organic_wheat = new Select(films, ["time", "durumWheatGreen"])
- 
+ var wheat = new Select(DB, ["time", "durumWheatConventional"])
+ var organic_wheat = new Select(DB, ["time", "durumWheatGreen"])
+ wheat.on("rerender", function() {
+   console.log("Conventional Wheat, by time, across all runs: ", _(_(this._cache).sortBy(function(o) { return o['time']})).pluck("durumWheatConventional"));
+ });
  
 /*films_tracker._feed.on("insert", function(e) { console.log("insert", e); })
 films_tracker._feed.on("update", function(e) { console.log("update", e); })

@@ -27,6 +27,7 @@
  */ 
  
 
+
 // how do I extend the array type?
 // do I want to extend the array type?
 
@@ -53,12 +54,16 @@
 // ...hm. since my use case plans to eat deletions as json like {-: obj}, obj will *not* be identity-equal with the target
 // one solution: switch to _.isEqual(); pro: does what I need; con: slow; potentially unbounded runtime; con: 
 // another: design the API--like PourOver--to demand .remove() is given objects from itself (so that we can depend on identity-equals). Then, at the layer that speaks to the WebSocket, do the conversion. This way, the _.isEqual() cruft only has to happen at one layer, and the whole dataflow chain from then on can just use ===
+// is-ness matters for: deletes and Distinct
 function is(a,b) {
-    return a === b;
+    //return a === b;
+    return _.isEqual(a,b); //rational for putting this in here: yes, it slows things down, but it allows .delete() to behave
+    // maybe we should write it that .delete() is special cased to use isEqual
 }
 
 /* helper method which many of the things share
- *
+ *  NB: .findIndex is a gecko extension, which we've imported by a polyfill in libs
+ *  this
  */
 function findIndex(self, e) {
   return self._cache.findIndex(function(g) { return is(g,e); });
@@ -69,24 +74,52 @@ function add(self, e) {
   //TODO: keep sorted
   
   self.trigger("insert", e);
+  self.trigger("rerender");
 }
 
 function remove(self, e) { 
   // find an element equal to e; note: there might be more than one!
-  //i = findIndex(self, e);
-  i = self._cache.indexOf(e);
+  i = findIndex(self, e);
+  //i = self._cache.indexOf(e);
   //i = self._cache.findIndex(function(g) { return _.isEqual(g, e); })
   //TODO: once the caches are kept sorted, use a binary search instead
   
   if(i >= 0) {  //silly bug: "if(i)" is false if i==0, but i==0 is a valid result from indexOf
     self._cache.splice(i, 1);
     self.trigger("delete", e);
+    self.trigger("rerender");
   }
 }
 
 
 
-/* class CacheSet
+/* class Table
+ *
+ * A Table implements a MultiSet of objects. It is intentionally very similar to a SQL table.
+ * 
+ * API:
+ *  - .on("insert", new_row)  -- fired AFTER insertion
+ *  - .on("delete", old_row)  -- fired AFTER deletion 
+ *  - FUTURE: .on("update", old_row, new_row) -- fired AFTER updating
+ *  - .on("rerender")         -- fired AFTER inserts, updates, deletes
+ *  - FUTURE: .at, .toArray(), etc(??)
+ *  - CURRENT: use ._cache to access the current state
+ *  - Operators:
+ *      S.and(Q), S.or(Q)
+ *        or And(S, Q, ...), Or(S, Q, ...)
+ *      S.where(pred)  - filter the set by a predicate
+ *      S.distinct()   - choose only unique items, as compared by underscore's _.isEqqual()
+ *      S.map(f)       - convert elements to a new element via a map function
+ *      S.select(fields) - slice out new objects from 
+ *      S.scalar(field)  - choose only the given field
+ *
+ *      FUTURE: S.reduce((prev, insert) -> next, (prev, ) - compact the table into a single value
+              using this reduce is a bit unusual compared to the classic reduce, because you "prev" value needs to be as much data as you need to handle both inserts and deletes; for 'sum' prev is simply the value of the sum (since a delete can be applied with subtraction), but for more complica
+ *      FUTURE: S.sum()         - only works on tables of numbers; will throw an exception if it hits
+ 
+ *  - FUTURE: Join(S, Q, fields)
+ * 
+ * roughly three categories: filters (and, or, not, where, distinct), maps (map, select, scalar), reduces (sum, avg, 
  *
  * TODO: pick a more descriptive and accurate name
  * TODO: implement .length
@@ -357,11 +390,13 @@ function setstr(s) {
 }
 
 
+function test_cacheset() {
+
 console.info("CACHESET TESTS");
 console.log(P);
 
 var norse_monsters = P.subset(function(m) { return m.mythology == "norse" });
-var sitting_monsters = P.subset(function(m) { return m.hobbies.indexOf("sitting") != -1 });
+var sitting_monsters = P.subset(function(m) { return _(m.hobbies).contains("sitting") });
 
 
 console.log("norse_monsters = ", setstr(norse_monsters));
@@ -422,8 +457,8 @@ console.log("norse AND sitting = ", setstr(norse_and_sitting));
 console.log("norse OR sitting = ", setstr(norse_or_sitting));	
 console.info("");
 
-// all the norse monsters also sit.
-
+}
+//test_cacheset();
 
 
 /*************************
