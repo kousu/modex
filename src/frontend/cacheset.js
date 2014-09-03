@@ -1,8 +1,10 @@
 /* cacheset: a set type based that supports watching state transitions, plus subtypes (subset, and, or, not, distinct, sum, average, ...) supporting dataflow programming.
  *
  * Each type maintains its own cache of the current
- *  Since JS is pointers-everywhere, this is automatically cheap: each elemetn
- * e.g.
+ *  Since JS is pointers-everywhere, this is automatically cheap: each element only actually exists once; the storage requirement for each type is only sizeof(js_ptr)*type.length
+ 
+ * The main concept here is the caching, which is a lot like postgres's materialized view; but unlike postgres's implementation, this does edge-triggered processing: it reacts to changes pushed from a source instead of having to poll a source to get a complete new copy.
+ *
  *
  *
  */ 
@@ -64,6 +66,14 @@ function remove(self, e) {
   }
 }
 
+
+
+/* class CacheSet
+ *
+ * TODO: pick a more descriptive and accurate name
+ * TODO: implement .length
+ * TODO: implement iterators or element access or something (rather than telling clients to just use ._cache); or, subclass Array and use its built in indexers 
+ */
 function CacheSet(seed) {
   // if 'new' was not used
   if(! (this instanceof CacheSet)) return new CacheSet();
@@ -85,12 +95,14 @@ CacheSet.prototype.delete = function(e) {
   remove(this, e);
 }
 
-
 CacheSet.prototype.subset = function(pred) {
   return new SubSet(this, pred);
 }
 
-/*
+/* A SubSet is a filtered slice of a CacheSet
+ *  and is itself considered a CacheSet
+ * Like a SQL View, a SubSet
+ *  but a SubSet is more like a Materialized View (c.f. Postgres; also this hack in MySQL: http://www.fromdual.com/mysql-materialized-views)
   // a SubSet S = SubSet(P, pred) by definition is supposed to maintain the invariant that
   // S = { e for e in P if pred(e) }
   // which equivalently means
@@ -104,7 +116,7 @@ function SubSet(parent, pred) {
   //XXX this would be more elegant if it was a subclass of CacheSet,
   // but I don't know how to do js inheritance properly
   // also, it's not clear if a SubSet should allow direct .insert() and .delete()s
-  
+  // TODO: implement .subset(), at least
   
   var self = this;
   
@@ -134,9 +146,14 @@ function SubSet(parent, pred) {
     }
   });
 }
+SubSet.prototype.subset = function(pred) {
+  return new SubSet(this, pred);
+}
 _.extend(SubSet.prototype, PourOver.Events);
 
 
+// TODO: implement all the PourOver filters as functions that construct predicates and then return a SubSet
+// TODO: implement view disposal
 
 var monsters = [{name: "sphinx", mythology: "greek", eyes: 2, sex: "f", hobbies: ["riddles","sitting","being a wonder"]},
                 {name: "hydra", mythology: "greek", eyes: 18, sex: "m", hobbies: ["coiling","terrorizing","growing"]},
