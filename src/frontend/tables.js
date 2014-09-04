@@ -24,6 +24,7 @@
  *  you do not care about either v or the anonymous Columns instance either, and expect them to be garbage collected; however, because they would have registered event listeners with their parents, their parents are holding a pointer to something that eventually leads to them; these pointers must therefore be weak references or else we will leak memory.
  
  * TODO: clean up terminology; decide between parents,children and dependees,dependents
+ * TODO: look into writing asynchronously, to avoid bogging down the browser with long computations
  */ 
 
 
@@ -170,6 +171,7 @@ count: function() { return new Count(this); },
 sum: function() { return new Sum(this); },
 mean: function() { return new Mean(this); },
 // variance: is hard to stream; i think, not impossible, but definitely difficult
+// cumsum: cumulative sum is useful but tricky ((also it is not quite a reduce and not quite a map)); it's obvious what to do on insert(), but what do you do with a delete()? do you findIndex() and then shift everything in cache above there down? do you assume sets are unsorted?
 
 })
 
@@ -348,6 +350,29 @@ function Or(A, B) {
   
 }
 _.extend(Or.prototype, Table.prototype);
+
+
+
+function Distinct(parent) {
+
+  var self = this;
+  Table.call(this, [])
+  
+  // TODO: speed this up by sorting
+  // TODO: handle deleting (to do it correctly we need to track the number of occurences of each element); perhaps if we had a usable groupBy...
+  function insert(e) {
+    if(self.findIndex(e) < 0) {
+      Table.prototype.insert.call(self, e);
+    }
+  }
+  parent._cache.forEach(insert); //XXX this is an O(n^2) line, currently!! On a moderately sized set it causes multiple unresponsive script warnings before finishing
+  // ergh..
+  // is there a way maybe to do this asynchronously?
+  
+  parent.on("insert", insert);
+}
+_.extend(Distinct.prototype, Table.prototype);
+
 
 
 
