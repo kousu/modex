@@ -109,20 +109,18 @@ function CacheSet(seed) {
   if(seed === null) { seed = new Array(); }
   this._cache = seed.slice(0); //shallow copy the seed array
 }
-_.extend(CacheSet.prototype, PourOver.Events); // TODO: use Backbone.Events instead, since that's the original source
-// alternately, roll these ideas into PourOver, though that will be difficult without breaking PourOver, or at least its zen.
 
-
-
-CacheSet.prototype.insert = function(e) {
+// core CacheSet API
+_.extend(CacheSet.prototype, {
+insert: function(e) {
   this._cache.push(e);
   //TODO: keep sorted
   
   this.trigger("insert", e);
   this.trigger("rerender");
-}
+},
 
-CacheSet.prototype.delete = function(e) {
+delete: function(e) {
   // find an element equal to e; note: there might be more than one!
   i = this.findIndex(this, e);
   //i = this._cache.indexOf(e);
@@ -135,9 +133,28 @@ CacheSet.prototype.delete = function(e) {
     this.trigger("rerender");
   }
 }
-CacheSet.prototype.subset = function(pred) {
-  return new SubSet(this, pred);
-}
+})
+
+//operators
+_.extend(CacheSet.prototype, {
+// filtering operators
+and: function(B) { return new And(this, B); },
+or: function(B) { return new Or(this, B); },
+subset: function(pred) { return new SubSet(this, pred); },
+distinct: function() { return new Distinct(this); },
+
+// map operators
+map: function(m) { return new Map(this, m); },
+select: function(fields) { return Select(this, fields); /*CAREFUL: 'new' is WRONG here*/ },
+scalar: function(field) { return Scalar(this, field); /*CAREFUL: 'new' is WRONG here*/ },
+
+// reduce operators
+// TODO
+
+})
+
+_.extend(CacheSet.prototype, PourOver.Events); // TODO: use Backbone.Events instead, since that's the original source
+// alternately, roll these ideas into PourOver, though that will be difficult without breaking PourOver, or at least its zen.
 
 
 
@@ -236,7 +253,7 @@ function And(A, B) {
     // 1) check if e is in B's limbo
     if((i = B_limbo.indexOf(e)) != -1) {
       B_limbo.splice(i, 1);
-      self.insert(self, e);
+      self.insert(e);
     } else {
     // 2) we "haven't" seen e yet; queue it
       A_limbo.push(e); //TODO: keep sortttted 
@@ -255,7 +272,7 @@ function And(A, B) {
     } else {
     // 2) we "haven't" seen e yet; queue it
       A_limbo.push(e); //TODO: keep sortttted 
-      self.delete(self, e);
+      self.delete(e);
     }
   });
   
@@ -264,7 +281,7 @@ function And(A, B) {
     // 1) check if e is in B's limbo
     if((i = A_limbo.indexOf(e)) != -1) {
       A_limbo.splice(i, 1);
-      self.insert(self, e);
+      self.insert(e);
     } else {
     // 2) we "haven't" seen e yet; queue it
       B_limbo.push(e); //TODO: keep sortttted 
@@ -283,7 +300,7 @@ function And(A, B) {
     } else {
     // 2) we "haven't" seen e yet; queue it
       B_limbo.push(e); //TODO: keep sortttted 
-      self.delete(self, e);
+      self.delete(e);
     }
   });
 }
@@ -342,12 +359,12 @@ function Map(parent, m) {
   
   parent.on("insert", function(e) {
     e = m(e);
-    self.insert(self, e);  //warning! 'this' is not 'self' within these event handlers!!
+    self.insert(e);  //warning! 'this' is not 'self' within these event handlers!!
   });
   
   parent.on("delete", function(e) { // as in "SubSet", we have an invariant that implies that if we actually see a delete we know necessarily we will perform a delete
     e = m(e);
-    self.delete(self, e);
+    self.delete(e);
   });
 }
 _.extend(Map.prototype, CacheSet.prototype);
@@ -384,7 +401,8 @@ var monsters = [{name: "sphinx", mythology: "greek", eyes: 2, sex: "f", hobbies:
 var P = new CacheSet(monsters);
 
 function setstr(s) {
-  return Scalar(s, "name")._cache
+  //return Scalar(s, "name")._cache
+  return _(s._cache).pluck("name")
 }
 
 
@@ -399,24 +417,30 @@ var sitting_monsters = P.subset(function(m) { return _(m.hobbies).contains("sitt
 console.log("norse_monsters = ", setstr(norse_monsters));
 console.log("sitting_monsters = ", setstr(sitting_monsters));
 
-var names = Scalar(P, "name");
-console.log("scalar[names] = ", names._cache);
+qq = P._cache.map(function(e) {
+    return e["name"];
+  });
+console.info(qq)
+var names = P.scalar("name");
+console.log("scalar[names] = ", JSON.stringify(names._cache));
 
-var norse_and_sitting = new And(norse_monsters, sitting_monsters);
+var norse_and_sitting = norse_monsters.and(sitting_monsters);
 console.log("norse AND sitting = ", setstr(norse_and_sitting));
 
-var norse_or_sitting = new Or(norse_monsters, sitting_monsters);
+var norse_or_sitting = norse_monsters.or(sitting_monsters);
 console.log("norse OR sitting = ", setstr(norse_or_sitting));
 console.info("");
 
-var norse_view = Select(norse_monsters, ["name", "mythology"]);
+var norse_view = norse_monsters.select(["name", "mythology"]);
 
 
 var n = {name: "ogabooga", mythology: "norse", eyes: 17, sex: "t", hobbies: ["staring","scaring","sitting","crying"]};
 
+console.log("scalar[names] = ", JSON.stringify(names._cache));
 
 console.log("adding", n);
 P.insert(n);
+console.log("scalar[names] = ", JSON.stringify(names._cache));
 console.log("norse_monsters = ", setstr(norse_monsters));
 console.log("norse_view = ", JSON.stringify(norse_view._cache));
 console.log("sitting_monsters = ", setstr(sitting_monsters));
