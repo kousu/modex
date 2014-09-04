@@ -26,6 +26,15 @@
  * TODO: clean up terminology; decide between parents,children and dependees,dependents
  */ 
  
+ 
+/* Vision for partial server-side querying
+ *  if our query ops are compatible with SQL (or at least, if some of them are)
+ *  then perhaps we could do something like just quoting the syntax we use to do querying in js and sending that to the server
+ *  or do the AST-object idea where we have a parallel tree of RCacheSet objects (R for "Remote")
+ *
+ * the best would be to have a situation where we can switch between RCacheSet and CacheSet objects just by renaming, and mix and match at will,
+ *  easy enough that we can do performance testing--perhaps even hotspot performance testing--to figure out which queries should be server side and which should be client side
+ */
 
 
 // how do I extend the array type?
@@ -61,35 +70,6 @@ function is(a,b) {
     // maybe we should write it that .delete() is special cased to use isEqual
 }
 
-/* helper method which many of the things share
- *  NB: .findIndex is a gecko extension, which we've imported by a polyfill in libs
- *  this
- */
-function findIndex(self, e) {
-  return self._cache.findIndex(function(g) { return is(g,e); });
-}
-
-function add(self, e) {
-  self._cache.push(e);
-  //TODO: keep sorted
-  
-  self.trigger("insert", e);
-  self.trigger("rerender");
-}
-
-function remove(self, e) { 
-  // find an element equal to e; note: there might be more than one!
-  i = findIndex(self, e);
-  //i = self._cache.indexOf(e);
-  //i = self._cache.findIndex(function(g) { return _.isEqual(g, e); })
-  //TODO: once the caches are kept sorted, use a binary search instead
-  
-  if(i >= 0) {  //silly bug: "if(i)" is false if i==0, but i==0 is a valid result from indexOf
-    self._cache.splice(i, 1);
-    self.trigger("delete", e);
-    self.trigger("rerender");
-  }
-}
 
 
 
@@ -126,12 +106,8 @@ function remove(self, e) {
  * TODO: implement iterators or element access or something (rather than telling clients to just use ._cache); or, subclass Array and use its built in indexers 
  */
 function CacheSet(seed) {
-  // if 'new' was not used
-  if(! (this instanceof CacheSet)) return new CacheSet(seed);
-  
   if(seed === null) { seed = new Array(); }
   this._cache = seed.slice(0); //shallow copy the seed array
-  
 }
 _.extend(CacheSet.prototype, PourOver.Events); // TODO: use Backbone.Events instead, since that's the original source
 // alternately, roll these ideas into PourOver, though that will be difficult without breaking PourOver, or at least its zen.
@@ -139,15 +115,38 @@ _.extend(CacheSet.prototype, PourOver.Events); // TODO: use Backbone.Events inst
 
 
 CacheSet.prototype.insert = function(e) {
-  add(this, e);
+  this._cache.push(e);
+  //TODO: keep sorted
+  
+  this.trigger("insert", e);
+  this.trigger("rerender");
 }
 
 CacheSet.prototype.delete = function(e) {
-  remove(this, e);
+  // find an element equal to e; note: there might be more than one!
+  i = this.findIndex(this, e);
+  //i = this._cache.indexOf(e);
+  //i = this._cache.findIndex(function(g) { return _.isEqual(g, e); })
+  //TODO: once the caches are kept sorted, use a binary search instead
+  
+  if(i >= 0) {  //silly bug: "if(i)" is false if i==0, but i==0 is a valid result from indexOf
+    this._cache.splice(i, 1);
+    this.trigger("delete", e);
+    this.trigger("rerender");
+  }
 }
-
 CacheSet.prototype.subset = function(pred) {
   return new SubSet(this, pred);
+}
+
+
+
+/* helper method which many of the things share
+ *  NB: .findIndex is a gecko extension, which we've imported by a polyfill in libs
+ *  this
+ */
+CacheSet.prototype.findIndex = function(e) {
+  return this._cache.findIndex(function(g) { return is(g,e); });
 }
 
 /* A SubSet is a filtered slice of a CacheSet
@@ -160,26 +159,29 @@ CacheSet.prototype.subset = function(pred) {
   //  \forall `e`: `e in P` and `pred(e)` => `e in S`
 */
 function SubSet(parent, pred) {
-
-  // if 'new' was not used
-  if(! (this instanceof SubSet)) return new SubSet(parent, pred);
+  var self = this;
   
   //XXX this would be more elegant if it was a subclass of CacheSet,
   // but I don't know how to do js inheritance properly
   // also, it's not clear if a SubSet should allow direct .insert() and .delete()s
   // TODO: implement .subset(), at least
   
-  var self = this;
+  
+  CacheSet.call(this, parent._cache.filter(pred)) //call the super constructor
+  
+  //  my goal is to avoid having to redefine the methods like insert() and delete() which should come for free
+  // in particular, I am *not* rewriting the conviencence methods .and(), .or(), etc; I'm putting them in one place, at the top
+  // I also want to run some but maybe not all of the initialization code from the
+  
   
   self._pred = pred;
-  self._cache = parent._cache.filter(self._pred);
   
   
   // whoops; .on() runs its callback in the scope of parent.
   // bah. dynamic scopppinggggg!!!
   parent.on("insert", function(e) {
-    if(self._pred(e)) {
-      add(self, e);
+    if(self._pred(e)) { //careful: this is 'parent' in here, not 'self'
+      this.insert(self, e);
     }
   });
   
@@ -193,21 +195,16 @@ function SubSet(parent, pred) {
   //    e *is* in self
   
     if(self._pred(e)) {
-      remove(self, e);
+      this.delete(self, e);
     }
   });
 }
-SubSet.prototype.subset = function(pred) {
-  return new SubSet(this, pred);
-}
-_.extend(SubSet.prototype, PourOver.Events);
-
+_.extend(SubSet.prototype, CacheSet.prototype);
+// the prototype needs to be cloned from the parent?
 
 // TODO: write a o_cmp which can be used by Array.sort() to order objects; by default, sort() misbehaves on objects
 
 function And(A, B) {
-  // if 'new' was not used
-  if(! (this instanceof And)) return new And(A, B);
   var self = this;
   
   self._A = A;
@@ -216,9 +213,9 @@ function And(A, B) {
   // Compute (A and B) as [e for e in A if e in B]
   //TODO: exploit sorting to make this faster
   // as written, this is an O(n^2) step
-  self._cache = self._A._cache.filter(function(a) {
-    return self._B._cache.indexOf(a) != -1;
-  });
+  CacheSet.call(this, A._cache.filter(function(a) {
+    return B._cache.indexOf(a) != -1;
+  }));
     
   // now, an incoming item can only come in if it is BOTH in A and in B
   //  that means we cannot add(self, e) until we have heard A.on("insert", e) and B.on("insert", e)
@@ -239,7 +236,7 @@ function And(A, B) {
     // 1) check if e is in B's limbo
     if((i = B_limbo.indexOf(e)) != -1) {
       B_limbo.splice(i, 1);
-      add(self, e);
+      self.insert(self, e);
     } else {
     // 2) we "haven't" seen e yet; queue it
       A_limbo.push(e); //TODO: keep sortttted 
@@ -258,7 +255,7 @@ function And(A, B) {
     } else {
     // 2) we "haven't" seen e yet; queue it
       A_limbo.push(e); //TODO: keep sortttted 
-      remove(self, e);
+      self.delete(self, e);
     }
   });
   
@@ -267,7 +264,7 @@ function And(A, B) {
     // 1) check if e is in B's limbo
     if((i = A_limbo.indexOf(e)) != -1) {
       A_limbo.splice(i, 1);
-      add(self, e);
+      self.insert(self, e);
     } else {
     // 2) we "haven't" seen e yet; queue it
       B_limbo.push(e); //TODO: keep sortttted 
@@ -286,17 +283,18 @@ function And(A, B) {
     } else {
     // 2) we "haven't" seen e yet; queue it
       B_limbo.push(e); //TODO: keep sortttted 
-      remove(self, e);
+      self.delete(self, e);
     }
   });
 }
-_.extend(And.prototype, PourOver.Events);
+_.extend(And.prototype, CacheSet.prototype);
 
 // I really need some sort of SortedArray type which has, like, merge() and filter() ops
 
 function Or(A, B) {
-  if(! (this instanceof Or)) return new Or(A, B);
   var self = this;
+  
+  CacheSet.call(this, A._cache.concat(B._cache));
   
   self._A = A;
   self._B = B;
@@ -307,7 +305,7 @@ function Or(A, B) {
   // in fact, it's *even worse* here than in And(), since not only is there the n^2 And step, then there's a tedious n^2 filtering out step
   // this pains me so much
   
-  self._cache = self._A._cache.concat(self._B._cache);
+  
   intersection = self._A._cache.filter(function(a) {
     return self._B._cache.indexOf(a) != -1;
   });
@@ -321,7 +319,7 @@ function Or(A, B) {
   }
   
 }
-_.extend(Or.prototype, PourOver.Events);
+_.extend(Or.prototype, CacheSet.prototype);
 
 
 //TODO: maybe rename "SubSet" "Where"
@@ -340,19 +338,19 @@ function select(o, fields) {
 function Map(parent, m) {
   
   var self = this;
-  self._cache = parent._cache.map(m);
+  CacheSet.call(this, parent._cache.map(m));
   
   parent.on("insert", function(e) {
     e = m(e);
-    add(self, e);
+    self.insert(self, e);  //warning! 'this' is not 'self' within these event handlers!!
   });
   
   parent.on("delete", function(e) { // as in "SubSet", we have an invariant that implies that if we actually see a delete we know necessarily we will perform a delete
     e = m(e);
-    remove(self, e);
+    self.delete(self, e);
   });
 }
-_.extend(Map.prototype, PourOver.Events);
+_.extend(Map.prototype, CacheSet.prototype);
 
 
 /* Columns: select only the given fields
@@ -393,15 +391,13 @@ function setstr(s) {
 function test_cacheset() {
 
 console.info("CACHESET TESTS");
-console.log(P);
+window.P = P; //DEBUG
 
 var norse_monsters = P.subset(function(m) { return m.mythology == "norse" });
 var sitting_monsters = P.subset(function(m) { return _(m.hobbies).contains("sitting") });
 
-
 console.log("norse_monsters = ", setstr(norse_monsters));
 console.log("sitting_monsters = ", setstr(sitting_monsters));
-
 
 var names = Scalar(P, "name");
 console.log("scalar[names] = ", names._cache);
