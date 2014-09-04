@@ -21,10 +21,20 @@ SERVER="./replicate.sh ${TABLE}"
 # TODO: name this better / use mkstemp / something
 IPC=/tmp/s_websockify_replicate_$table
 
+
+# terminate all children (websockify, etc) on exit
+# tip from http://stackoverflow.com/questions/360201/kill-background-process-when-shell-script-exit
+#trap 'kill $(jobs -p)' EXIT #?? doesn't work
+
+
 # start up websockify, daemonized, waiting for connections to proxy to socat
-websockify -D $PORT --unix-target=$IPC
+websockify $PORT --unix-target=$IPC &  #NB: it is important; it might be more robust to just give up on bash and use subprocess.py instead...
+WEBSOCKIFY=$!
 
 # start up socat, proxying TCP to the replication server
 # reusaddr gets around lingering (e.g. TIME_WAIT) connections blocking the new bind(),
 #  so that you can stop and restart this script immediately
 socat UNIX-LISTEN:$IPC,fork,reuseaddr EXEC:"$SERVER"
+# we don't background socat because we need something to hold this script open
+
+kill $WEBSOCKIFY
