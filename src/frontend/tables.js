@@ -129,7 +129,7 @@ insert: function(e) {
 
 delete: function(e) {
   // find an element equal to e; note: there might be more than one!
-  i = this.findIndex(this, e);
+  i = this.findIndex(e);
   //i = this._cache.indexOf(e);
   //i = this._cache.findIndex(function(g) { return _.isEqual(g, e); })
   //TODO: once the caches are kept sorted, use a binary search instead
