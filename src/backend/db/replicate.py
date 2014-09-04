@@ -55,10 +55,6 @@ import logging
 
 logging.getLogger().setLevel(logging.DEBUG)
 
-DB_SOCKET = "data" #path to folder containing the postgres socket
-DB_SOCKET = os.path.abspath(DB_SOCKET) #postgres can't handle relative paths
-DB_CONN_STRING = "postgresql:///postgres?host=%s" % (DB_SOCKET,)
-E = sqlalchemy.create_engine(DB_CONN_STRING) #TODO: deglobalize
 
 #import IPython; IPython.embed()
 
@@ -215,7 +211,15 @@ def replicatethread(table, ctl_sock):
 if __name__ == '__main__':
 
     import sys
-    table = sys.argv[1]
+    postgres, table = sys.argv[1:]
+    
+    assert postgres.startswith("postgresql://"), "Must be a valid sqlalchemy-to-postgres connection string" #XXX there are connection strings which spec the driver to use which are valid too; this assertion is too strong
+    #DB_SOCKET = "data" #path to folder containing the postgres socket
+    #DB_SOCKET = os.path.abspath(DB_SOCKET) #postgres can't handle relative paths
+    #DB_CONN_STRING = "postgresql:///postgres?host=%s" % (DB_SOCKET,)
+    global E
+    E = sqlalchemy.create_engine(postgres) #TODO: deglobalize
+
     
     ctl, ctl_slave = socket.socketpair() #when this socket closes all spools (all two of them, but it could be generalized) should shut down immediately
     

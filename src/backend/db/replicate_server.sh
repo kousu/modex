@@ -12,9 +12,10 @@
 # the multiple-client effect is achieved by socat TCP-LISTEN,...,fork [nc calls this -k]
 
 PORT="$1"
-TABLE="$2"
+DB="$2"
+TABLE="$3"
 
-SERVER="./replicate.sh ${TABLE}"
+SERVER="./replicate.sh \"${DB}\" \"${TABLE}\""
 
 # rather than use up a TCP port for the websockify <--> socat connection
 # use a unix domain socket instead
