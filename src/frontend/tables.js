@@ -406,7 +406,7 @@ _.extend(Scalar.prototype, Map.prototype);
 function Count(parent) {
   var self = this;
   
-  self.value = parent._cache.length;
+  self.value = +parent._cache.length;
   parent.on("insert", function(e) { self.value += 1})
   parent.on("delete", function(e) { self.value -= 1})
 }
@@ -414,7 +414,7 @@ _.extend(Count.prototype, PourOver.Events);
 
 function Sum(parent) {
   var self=this;
-  self.value = parent._cache.reduce(function(prev, e) { return prev + e });
+  self.value = parent._cache.reduce(function(prev, e) { return (+prev) + (+e) }); /* the +(.) is js for "typecast to numeric"; things that are not already numeric come out NaN, which is a reasonable thing */
   
   parent.on("insert", function(e) { self.value += e })
   parent.on("delete", function(e) { self.value -= e })
@@ -428,7 +428,7 @@ function Mean(parent) {
   var sum = parent.sum()
   var count = parent.count()
   
-  function sync(e) { self.value = sum.value / count.value }
+  function sync(e) { self.value = (+sum.value) / (+count.value) }
   sync()
   
   parent.on("rerender", sync)
