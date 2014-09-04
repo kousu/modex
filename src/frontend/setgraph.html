@@ -34,7 +34,7 @@ lets see if i can get a websocket talking to replicate.py, at least
 <script src="/assets/libs/underscore.js"></script>
 <script src="/assets/libs/pourover.js"></script>
 <script src="/assets/libs/findIndex.js"></script>
-<script src="cacheset.js"></script>
+<script src="tables.js"></script>
 <script src="HDRJ.js"></script>
 <script>
 
@@ -71,9 +71,9 @@ _.extend(HDRJTable.prototype, Table.prototype);
  
  var wheat = DB.select(["time", "durumWheatConventional"])
  var organic_wheat = DB.select(["time", "durumWheatGreen"])
- wheat.on("rerender", function() {
+ /*wheat.on("rerender", function() {
    console.log("Conventional Wheat, by time, across all runs: ", _(_(this._cache).sortBy(function(o) { return o['time']})).pluck("durumWheatConventional"));
- });
+ });*/
  
 /*films_tracker._feed.on("insert", function(e) { console.log("insert", e); })
 films_tracker._feed.on("update", function(e) { console.log("update", e); })
