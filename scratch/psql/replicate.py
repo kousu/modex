@@ -175,7 +175,11 @@ def replicate(_table, ctl_sock):
     keys = [col.name for col in cur.description] #low level SQLAlchemy (psycopg2, in this case)
     #keys = cur.keys() #SQLAlchemy
     for row in cur:
-      if select.select([ctl_sock], [], [],0)[0]: break #note: the ",0" is key here! it means "do polling" instead of "do blocking" 
+      # fail-fast if we've been told to shutdown
+      if select.select([ctl_sock], [], [],0)[0]: # the ",0" is key here! it means "do polling" instead of "do blocking"
+        break
+      
+      # spool the next row
       row = dict(zip(keys, row))  #coerce the SQLAlchemy row format to a dictionary
       delta = {"+": row} #convert row to our made up delta format; the existing rows can all be considered inserts
       delta = json.dumps(delta) #and then to JSON
