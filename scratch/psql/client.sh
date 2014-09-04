@@ -1,13 +1,18 @@
 #!/usr/bin/env bash
-
+# usage: ./client.sh [dbname]
+#  launches psql pointed at the db 
+#  server.sh must be running for this to work
 
 pushd $(dirname $0) >/dev/null; HERE=`pwd`; popd >/dev/null
 cd $HERE
 
-psql -d postgres -h 127.0.0.1
-# -h "$HERE"
- # initdb makes a default database called "postgres" so we just ride on that.
- #  -h makes postgres use the current directory look for its socket in $HERE
- # ...except for some reason "postgres -k ." doesn't seem to actually write the socket file into $HERE,
- #  but it stops postgres from trying to write to /var/run/postgresql
- #so I fall back on TCP, as usual. Which is fine, because that makes sniffing the traffic easier.
+DB=$1
+if [ -z $DB ]; then
+  DB="postgres"  # initdb makes a default database called "postgres" so we just ride on that as the default
+fi
+
+PGDATA=`pwd`/data
+
+psql -d $DB -h $PGDATA #<-- this construction makes -h start with a slash which makes postgres interpret it as a path instead of an address which means psql connects over unix domain instead of tcp
+
+

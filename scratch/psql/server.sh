@@ -1,5 +1,8 @@
 #!/usr/bin/env bash
 
+# this script lets you run postgres without needing root
+# it also handles any platform-specific cruft needed to get this system up
+
 # before running this, do
 # initdb ./data/
 #
@@ -19,4 +22,5 @@ fi
 pushd $(dirname $0) >/dev/null; HERE=`pwd`; popd >/dev/null
 cd $HERE
 
-postgres -D ./data/ -k .
+#"-k ." is the magic that means "put your socket file in your current directory" and not in /var/run which you would need to fight permissions on
+postgres -D ./data/  -k .
