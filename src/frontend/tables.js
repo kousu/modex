@@ -25,7 +25,10 @@
  
  * TODO: clean up terminology; decide between parents,children and dependees,dependents
  */ 
- 
+
+
+// TIP: if you get "too much recursion" on inserts and deletes, check if you dependent types are calling accidentally calling this.insert instead of self.insert in their event handlers! PourOver.Events runs event handlers *with this set to the object the event happened on*
+// TIP: 
  
 /* Vision for partial server-side querying
  *  if our query ops are compatible with SQL (or at least, if some of them are)
@@ -48,6 +51,10 @@
 
 // TODO: support updates; right now, the API forces you to perform updates as a delete foll
 // TODO: are there gnarly edge cases where a delete,insert != insert,delete ? perhaps made gnarlier by the identity issues that is() represents?
+// TODO: write a o_cmp which can be used by Array.sort() to order objects; by default, sort() misbehaves on objects
+// TODO: wrap this all in one big namespace / module / make it work with nodejs / etc
+// TODO: implement all the PourOver filters as functions that construct predicates and then return a Where
+// TODO: implement view disposal
 
 //var _ = require('../../assets/libs/underscore.js'); //??
 //var PourOver = require('../../assets/libs/pourover.js'); 
@@ -132,7 +139,17 @@ delete: function(e) {
     this.trigger("delete", e);
     this.trigger("rerender");
   }
+},
+
+
+/* helper method which many of the things share
+ *  NB: .findIndex is a gecko extension, which we've imported by a polyfill in libs
+ *  this
+ */
+findIndex: function(e) {
+  return this._cache.findIndex(function(g) { return is(g,e); });
 }
+
 })
 
 //operators
@@ -140,16 +157,19 @@ _.extend(Table.prototype, {
 // filtering operators
 and: function(B) { return new And(this, B); },
 or: function(B) { return new Or(this, B); },
-Where: function(pred) { return new Where(this, pred); },
+where: function(pred) { return new Where(this, pred); },
 distinct: function() { return new Distinct(this); },
 
 // map operators
 map: function(m) { return new Map(this, m); },
-select: function(fields) { return Select(this, fields); /*CAREFUL: 'new' is WRONG here*/ },
-scalar: function(field) { return Scalar(this, field); /*CAREFUL: 'new' is WRONG here*/ },
+select: function(fields) { return new Select(this, fields); },
+scalar: function(field) { return new Scalar(this, field); },
 
 // reduce operators
-// TODO
+count: function() { return new Count(this); },
+sum: function() { return new Sum(this); },
+mean: function() { return new Mean(this); },
+// variance: is hard to stream; i think, not impossible, but definitely difficult
 
 })
 
@@ -158,13 +178,6 @@ _.extend(Table.prototype, PourOver.Events); // TODO: use Backbone.Events instead
 
 
 
-/* helper method which many of the things share
- *  NB: .findIndex is a gecko extension, which we've imported by a polyfill in libs
- *  this
- */
-Table.prototype.findIndex = function(e) {
-  return this._cache.findIndex(function(g) { return is(g,e); });
-}
 
 /* A Where is a filtered slice of a Table
  *  and is itself considered a Table
@@ -193,12 +206,11 @@ function Where(parent, pred) {
   
   self._pred = pred;
   
-  
   // whoops; .on() runs its callback in the scope of parent.
   // bah. dynamic scopppinggggg!!!
   parent.on("insert", function(e) {
     if(self._pred(e)) { //careful: this is 'parent' in here, not 'self'
-      this.insert(self, e);
+      Table.prototype.insert.call(self, e);
     }
   });
   
@@ -212,14 +224,13 @@ function Where(parent, pred) {
   //    e *is* in self
   
     if(self._pred(e)) {
-      this.delete(self, e);
+      Table.prototype.delete.call(self, e);
     }
   });
 }
 _.extend(Where.prototype, Table.prototype);
-// the prototype needs to be cloned from the parent?
+_.extend(Where.prototype, { insert: null, delete: null }) //disable insert and delete
 
-// TODO: write a o_cmp which can be used by Array.sort() to order objects; by default, sort() misbehaves on objects
 
 function And(A, B) {
   var self = this;
@@ -339,18 +350,6 @@ function Or(A, B) {
 _.extend(Or.prototype, Table.prototype);
 
 
-//TODO: maybe rename "Where" "Where"
-// and "Columns" "Select" to match SQL
-
-function select(o, fields) {
-  //TODO: special case: if fields is not an array, wrap it as a 1-element array
-  // or maybe, if fields is *not* an array, operate as pluck() (eschewing creating a container object at all)
-  r = {}
-  fields.forEach(function(f) {
-    r[f] = o[f];
-  })
-  return r;
-}
 
 function Map(parent, m) {
   
@@ -370,27 +369,75 @@ function Map(parent, m) {
 _.extend(Map.prototype, Table.prototype);
 
 
-/* Columns: select only the given fields
- *NB: this is a generalized version of _.pluck; should we alias it to match?
+/* Select: select only the given fields from the objects
+ *  if you use this on scalars you will have a bad time.
  *  
  */ 
 function Select(parent, fields) { //TODO: fixit so that you ; or just wrap everything in new-safety code and tell people not to use new with any of the operator-types.
-  
-  return new Map(parent, function(e) {
-    return select(e, fields);
-  });
-}
+  function select(o, fields) {
+    //TODO: special case: if fields is not an array, wrap it as a 1-element array
+    // or maybe, if fields is *not* an array, operate as pluck() (eschewing creating a container object at all)
+    r = {}
+    fields.forEach(function(f) {
+      r[f] = o[f];
+    })
+    return r;
+  }
 
-/* Scalar: like select() but extracts a single field and does not wrap it in an object; equivalent to underscore's pluck()
+  Map.call(this, parent, function(e) {
+    return select(e, fields);
+  })
+}
+_.extend(Select.prototype, Map.prototype);
+
+/* Scalar: like select() but extracts a single field and does not wrap it in an object;
+ *  equivalent to underscore's pluck(); should we alias it to match?
  */
 function Scalar(parent, field) {
-  return new Map(parent, function(e) {
+  Map.call(this, parent, function(e) {
     return e[field];
-  });
+  })
 }
+_.extend(Scalar.prototype, Map.prototype);
 
-// TODO: implement all the PourOver filters as functions that construct predicates and then return a Where
-// TODO: implement view disposal
+
+// TODO: factor all these into a Reduce type
+
+function Count(parent) {
+  var self = this;
+  
+  self.value = parent._cache.length;
+  parent.on("insert", function(e) { self.value += 1})
+  parent.on("delete", function(e) { self.value -= 1})
+}
+_.extend(Count.prototype, PourOver.Events);
+
+function Sum(parent) {
+  var self=this;
+  self.value = parent._cache.reduce(function(prev, e) { return prev + e });
+  
+  parent.on("insert", function(e) { self.value += e })
+  parent.on("delete", function(e) { self.value -= e })
+}
+_.extend(Sum.prototype, PourOver.Events);
+
+
+function Mean(parent) {
+  var self=this;
+  
+  var sum = parent.sum()
+  var count = parent.count()
+  
+  function sync(e) { self.value = sum.value / count.value }
+  sync()
+  
+  parent.on("rerender", sync)
+}
+_.extend(Mean.prototype, PourOver.Events);
+
+
+function test_Table() {
+
 
 var monsters = [{name: "sphinx", mythology: "greek", eyes: 2, sex: "f", hobbies: ["riddles","sitting","being a wonder"]},
                 {name: "hydra", mythology: "greek", eyes: 18, sex: "m", hobbies: ["coiling","terrorizing","growing"]},
@@ -405,20 +452,20 @@ function setstr(s) {
   return _(s._cache).pluck("name")
 }
 
-
-function test_Table() {
-
 console.info("Table TESTS");
 window.P = P; //DEBUG
 
-var norse_monsters = P.Where(function(m) { return m.mythology == "norse" });
-var sitting_monsters = P.Where(function(m) { return _(m.hobbies).contains("sitting") });
+var norse_monsters = P.where(function(m) { return m.mythology == "norse" });
+var sitting_monsters = P.where(function(m) { return _(m.hobbies).contains("sitting") });
 window.norse_monsters = norse_monsters; //DEBUG
+window.sitting_monsters = sitting_monsters; 
+
+var names = P.scalar("name");
+
 
 console.log("norse_monsters = ", setstr(norse_monsters));
 console.log("sitting_monsters = ", setstr(sitting_monsters));
 
-var names = P.scalar("name");
 console.log("scalar[names] = ", JSON.stringify(names._cache));
 
 var norse_and_sitting = norse_monsters.and(sitting_monsters);
@@ -433,10 +480,21 @@ var norse_view = norse_monsters.select(["name", "mythology"]);
 
 var n = {name: "ogabooga", mythology: "norse", eyes: 17, sex: "t", hobbies: ["staring","scaring","sitting","crying"]};
 
+
+var seated_eyes = sitting_monsters.scalar("eyes").sum()
+var sitting_count = sitting_monsters.select(["eyes", "hobbies"]).count()
+var mean_eyes = P.scalar("eyes").mean()
+
 console.log("scalar[names] = ", JSON.stringify(names._cache));
+
+console.log("there are",seated_eyes.value,"sitting eyes");
+console.log("and ",sitting_count.value,"sitting monsters");
+console.log("for an average of ",mean_eyes.value,"eyes");
 
 console.log("adding", n);
 P.insert(n);
+
+
 console.log("scalar[names] = ", JSON.stringify(names._cache));
 console.log("norse_monsters = ", setstr(norse_monsters));
 console.log("norse_view = ", JSON.stringify(norse_view._cache));
@@ -445,14 +503,28 @@ console.log("norse AND sitting = ", setstr(norse_and_sitting));
 console.log("norse OR sitting = ", setstr(norse_or_sitting));
 console.info("");
 
+
+
+console.log("there are",seated_eyes.value,"sitting eyes");
+console.log("and ",sitting_count.value,"sitting monsters");
+console.log("for an average of ",mean_eyes.value,"eyes");
+
 console.log("adding", n);
 P.insert(n);
+
+
+
 console.log("norse_monsters = ", setstr(norse_monsters));
 console.log("norse_view = ", JSON.stringify(norse_view._cache));
 console.log("sitting_monsters = ", setstr(sitting_monsters));
 console.log("norse AND sitting = ", setstr(norse_and_sitting));
 console.log("norse OR sitting = ", setstr(norse_or_sitting));
 console.info("");
+
+
+console.log("there are",seated_eyes.value,"sitting eyes");
+console.log("and ",sitting_count.value,"sitting monsters");
+console.log("for an average of ",mean_eyes.value,"eyes");
 
 console.log("deleting", n);
 P.delete(n);
@@ -464,6 +536,11 @@ console.log("norse AND sitting = ", setstr(norse_and_sitting));
 console.log("norse OR sitting = ", setstr(norse_or_sitting));
 console.info("");
 
+
+console.log("there are",seated_eyes.value,"sitting eyes");
+console.log("and ",sitting_count.value,"sitting monsters");
+console.log("for an average of ",mean_eyes.value,"eyes");
+
 console.log("deleting", monsters[2]);
 P.delete(monsters[2])
 
@@ -474,6 +551,9 @@ console.log("norse AND sitting = ", setstr(norse_and_sitting));
 console.log("norse OR sitting = ", setstr(norse_or_sitting));	
 console.info("");
 
+console.log("there are",seated_eyes.value,"sitting eyes");
+console.log("and ",sitting_count.value,"sitting monsters");
+console.log("for an average of ",mean_eyes.value,"eyes");
 }
 test_Table();
 
