@@ -73,9 +73,10 @@ E = sqlalchemy.create_engine(DB_CONN_STRING) #TODO: deglobalize
 class Changes:
     MTU = 2048 #maximum bytes to read per message
     
-    def __init__(self, table): #TODO: support where clauses
+    def __init__(self, table, ctl_sock): #TODO: support where clauses
       self._table = table
       self._stream_id = None
+      self._ctl_sock = ctl_sock
       
     def __enter__(self):
       # set up our listening socket
@@ -99,7 +100,6 @@ class Changes:
       return self #oops!
     
     def __exit__(self, *args):
-      print("__exit__")
       
       # unregister ourselves
       # XXX SQL injection here
@@ -117,10 +117,13 @@ class Changes:
       return self
     
     def __next__(self):
-      fread, fwrite, ferr = select.select([self._sock], [], [self._sock])  #block until some data is available
+      fread, fwrite, ferr = select.select([self._sock, self._ctl_sock], [], [self._sock, self._ctl_sock])  #block until some data is available
       if ferr:
         pass #XXX
       else:
+        if self._ctl_sock in fread:
+            if not self._ctl_sock.recv(1):
+                raise StopIteration
         pkt = self._sock.recv(Changes.MTU)
         pkt = pkt.decode('utf-8')
         return pkt
@@ -128,8 +131,11 @@ class Changes:
     next = __next__ #py2 compatibility
   
 
-def replicate(_table):
+def replicate(_table, ctl_sock):
+  """
   
+  ctl_sock should be a socket that 
+  """
   
   # XXX we might need to construct the Changes stream first
   #  If we do have concurrency problems, doing that at least guarantees that we don't miss any changes, though we might end up with duplicate rows or trying to delete nonexistent rows
@@ -145,7 +151,7 @@ def replicate(_table):
   # this is sort of tricky
   # I need to say somethign like
   
-  with Changes(_table) as changes: #<-- use with to get the benefits of RAII, since Changes has a listening endpoint to worry about cleaning up
+  with Changes(_table, ctl_sock) as changes: #<-- use with to get the benefits of RAII, since Changes has a listening endpoint to worry about cleaning up
     
     # README: BUGFIX: the change to raw_connection() caused a deadlock which only occurs the first time register() is called: register() needs to create a trigger on _table, but cur holds a lock on _table
     #  it seems, however, that reordering the instructions avoids the deadlock
@@ -169,6 +175,7 @@ def replicate(_table):
     keys = [col.name for col in cur.description] #low level SQLAlchemy (psycopg2, in this case)
     #keys = cur.keys() #SQLAlchemy
     for row in cur:
+      if select.select([ctl_sock], [], [],0)[0]: break #note: the ",0" is key here! it means "do polling" instead of "do blocking" 
       row = dict(zip(keys, row))  #coerce the SQLAlchemy row format to a dictionary
       delta = {"+": row} #convert row to our made up delta format; the existing rows can all be considered inserts
       delta = json.dumps(delta) #and then to JSON
@@ -184,28 +191,53 @@ def replicate(_table):
       # we assume that the source (watch_table()) has already jsonified things for us; THIS MIGHT BE A MISTAKE
       yield delta
     # NOTREACHED (unless something crashes, the changes feed should be infinite, and a crash would crash before this line anyway)
-    
+
+
 import threading
 
-def alivethread():
-    import time
-    while True:
-        sys.stderr.write("what's up?")
-        sys.stderr.flush()
-        time.sleep(3)
+# have one thread, the alive thread, watching for (this can just
+# and the Repl
+def replicatethread(table, ctl_sock):
+    ctl, ctl_slave = ctl_sock
+    try:
+        for delta in replicate(table, ctl_slave):
+            #print(delta, flush=True) #py3
+            print (delta); sys.stdout.flush() #py2/3
+    finally:
+        ctl.close()  # NB: unix doesn't care if a socket is closed multiple times
 
+
+# TODO: use the signal module to trap things that might eat us and rewrite them as "ctl.close()" so that cleanup can happen properly
 if __name__ == '__main__':
 
     import sys
     table = sys.argv[1]
     
-    T = threading.Thread(target=alivethread)
-    T.start()
+    ctl, ctl_slave = socket.socketpair() #when this socket closes all spools (all two of them, but it could be generalized) should shut down immediately
     
-    for delta in replicate(table):
-        #print(delta, flush=True) #py3
-        print (delta); sys.stdout.flush() #py2/3
-        sys.stderr.write("hello \n")
+    RT = threading.Thread(target=replicatethread, args=(table, (ctl, ctl_slave)))
+    RT.start()
     
-    # NOTREACHED
+    # TODO: for symmetry, there should be an "AT" (alivethread) which does the stdin checking
+    # and main() should simply .join() all the threads, and assume that they'll inter-signal each other and shutdown cleanly
+    # XXX speaking of signals, what if I used them? It would be more unixey, in one sense. I would probably still need a socketpair() call in order to be able to map a signal into something I can select() on
     
+    try:
+        while True:
+            fread, fwrite, ferr = select.select([sys.stdin, ctl_slave], [], [])
+            #print("alivethread:", (fread, fwrite, ferr), file=sys.stderr)
+            if sys.stdin in fread:
+                #print("alivethread:", "break stdin",file=sys.stderr)
+                if sys.stdin.read(1) == "":
+                    break
+            if ctl_slave in fread:
+                #print("alivethread:", "break ctl",file=sys.stderr)
+                if ctl_slave.recv(1) == "":
+                    break
+            #if sys.stdout in ferr:
+            #    print("alivethread:", "break stdout",file=sys.stderr)
+            #    break
+    finally:
+        ctl.close()
+    
+    RT.join() #give the replication a chanc eto clean up after itself
