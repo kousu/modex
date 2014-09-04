@@ -6,6 +6,7 @@
 -- TODO:
 --  [ ] Install these hooks into a spare tablespace
 --  [ ] Make sure these hooks can be deployed to production servers
+--  [ ] Do load tests to make sure these hooks don't lag out the server; actually formatting and compacting the IP packets should perhaps be pushed out to an external process
 
 CREATE OR REPLACE LANGUAGE plpython2u;
 
