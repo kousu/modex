@@ -99,6 +99,8 @@ class Changes:
       return self #oops!
     
     def __exit__(self, *args):
+      print("__exit__")
+      
       # unregister ourselves
       # XXX SQL injection here
       C = E.connect()
@@ -183,15 +185,27 @@ def replicate(_table):
       yield delta
     # NOTREACHED (unless something crashes, the changes feed should be infinite, and a crash would crash before this line anyway)
     
-    
+import threading
+
+def alivethread():
+    import time
+    while True:
+        sys.stderr.write("what's up?")
+        sys.stderr.flush()
+        time.sleep(3)
+
 if __name__ == '__main__':
 
     import sys
     table = sys.argv[1]
     
+    T = threading.Thread(target=alivethread)
+    T.start()
+    
     for delta in replicate(table):
         #print(delta, flush=True) #py3
-        print delta; sys.stdout.flush() #py2
+        print (delta); sys.stdout.flush() #py2/3
+        sys.stderr.write("hello \n")
     
     # NOTREACHED
     
