@@ -75,6 +75,9 @@ class SimulationTable(Table):
         # works on sets and is ignorant of order, but sqlalchemy isn't, and csv isn't.
         assert isinstance(parent, SimulationLog), "SimulationTable only works with SimulationLogs."
         
+        if any(isinstance(c, Column) and c.name == "run_id" for c in schema):
+            raise ValueError("run_id is a reserved column name in SimulationTables")
+        
         schema = (Column("run_id", Integer, ForeignKey("runs.id"), primary_key=True, default=parent.run_id),) + schema #the default here is a constant and *private*
         # TODO: use ForeignKey(parent.runs_table.c.id) instead of a string, for stronger typing win
         
@@ -242,6 +245,10 @@ class TimestepTable(SimulationTable):
         # prefix the table by 'time'; note that the time is pulled, via closure, from the parent ModelLog object
         #assert isinstance(parent, TimestepLog), "TimestepTable only works with TimestepLogs."
         assert hasattr(parent, 'time'), "TimestepTable only works with TimestepLogs." #looser, duck-typed precondition
+        
+        if any(isinstance(c, Column) and c.name == "time" for c in schema):
+            raise ValueError("time is a reserved column name in TimestepTables")
+        
         schema = (Column("time", Integer, ForeignKey("timesteps.time"), primary_key=True, default=lambda: parent.time),
                  ) + schema
                  
