@@ -3,6 +3,8 @@
 #  constructs a postgres instance, the database "dbname", and installs the replication hooks
 # once you run this, run server.sh to use the database
 
+
+
 pushd $(dirname $0) >/dev/null; HERE=`pwd`; popd >/dev/null
 cd $HERE
 
@@ -20,6 +22,9 @@ fi
 
 
 DB=$1
+if [ -z $DB ]; then
+  DB="postgres"
+fi
 
 export PGDATA=$HERE/data
 if [ ! -d $PGDATA ]; then
@@ -34,6 +39,7 @@ CREATE DATABASE $DB;
 EOF
 
 # install the replication hook
+# TODO: do we want to do this installation in replicate.py instead?
 psql -d $DB -h $PGDATA < ./replicate.pysql &&
 
 # shutdown

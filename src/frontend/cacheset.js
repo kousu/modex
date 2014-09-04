@@ -1,10 +1,10 @@
-/* cacheset: an in-memory in-javascript database system based around multisets instead of around tables or documents (though any can be translated to the others) and around dataflow programming.
+/* Table: an in-memory in-javascript database system based around multisets instead of around tables or documents (though any can be translated to the others) and around dataflow programming.
  *
- * The system provides subtypes (subset, and, or, not, columns, distinct, sum, average, min, max, groupBy, ...).
+ * The system provides subtypes (Where, and, or, not, columns, distinct, sum, average, min, max, groupBy, ...).
  * with each type maintaining a live cache of its current state, as computed from whatever it is based on (necessarily, then, the supported operations are limited to whatever can be efficiently computed on a stream; limited to roughly what SQL provides, in fact).
  
  * The main concept here is the caching, which is a lot like postgres's materialized view; but unlike postgres's implementation, this does edge-triggered processing: it reacts to changes pushed from a source instead of having to poll a source to get a complete new copy.
- *  Since JS is pointers-everywhere, for the types which compute new sets (subset, and, or, not) are storage-cheap: each element only actually exists once; the storage requirement for each type is only sizeof(js_ptr)*cache.length. The other types do not have this guarantee (in particular, Columns has to create new objects)
+ *  Since JS is pointers-everywhere, for the types which compute new sets (Where, and, or, not) are storage-cheap: each element only actually exists once; the storage requirement for each type is only sizeof(js_ptr)*cache.length. The other types do not have this guarantee (in particular, Columns has to create new objects)
  *
  *
  * Dependent types listen to their parent's "insert" and "delete" events; when a parent's cache is updated it fires an event, which causes a chain reaction of dependents to check if they should update their cache, and fire their events.
@@ -13,11 +13,11 @@
  * Garbage Collection:
  *  - it is important that dependees hold strong references to their parents and that parents hold (at most) weak references to their children
  *  e.g. if you say
- *   var C = new CacheSet([...]);
- *   var large = C.subset(function(e) { e.width > 9 });
+ *   var C = new Table([...]);
+ *   var large = C.Where(function(e) { e.width > 9 });
  *   var v = large.columns(["name", "type"]).distinct();
  *  then you have must have a chain of strong references
- *    v (a Distinct) -> Columns -> SubSet -> CacheSet 
+ *    v (a Distinct) -> Columns -> Where -> Table 
  *   which is good and right because v ultimately depends on all of those 
  *  but if you
  *    delete v; (or otherwise lose its reference)
@@ -30,9 +30,9 @@
 /* Vision for partial server-side querying
  *  if our query ops are compatible with SQL (or at least, if some of them are)
  *  then perhaps we could do something like just quoting the syntax we use to do querying in js and sending that to the server
- *  or do the AST-object idea where we have a parallel tree of RCacheSet objects (R for "Remote")
+ *  or do the AST-object idea where we have a parallel tree of RTable objects (R for "Remote")
  *
- * the best would be to have a situation where we can switch between RCacheSet and CacheSet objects just by renaming, and mix and match at will,
+ * the best would be to have a situation where we can switch between RTable and Table objects just by renaming, and mix and match at will,
  *  easy enough that we can do performance testing--perhaps even hotspot performance testing--to figure out which queries should be server side and which should be client side
  */
 
@@ -40,7 +40,7 @@
 // how do I extend the array type?
 // do I want to extend the array type?
 
-// CacheSet has an API similar to but only overlapping with--not inheriting--the Array API
+// Table has an API similar to but only overlapping with--not inheriting--the Array API
 // hence, we wrap an array
 // Notably, *this type is not actually a set* but rather a multiset since it allows multiple copies of a single item
 // (Use Case: cloning SQL db tables; in practice, all SQL rows should have a unique ID, which automatically, but since SQL allows this not to be true I need to support it not being true)
@@ -52,7 +52,7 @@
 //var _ = require('../../assets/libs/underscore.js'); //??
 //var PourOver = require('../../assets/libs/pourover.js'); 
 
-//module.exports = CacheSet
+//module.exports = Table
 
 /* is essentially defines what we consider to be an equal object
  * we could also use underscore's _.isEqual() which does recursive value comparison
@@ -105,13 +105,13 @@ function is(a,b) {
  * TODO: implement .length
  * TODO: implement iterators or element access or something (rather than telling clients to just use ._cache); or, subclass Array and use its built in indexers 
  */
-function CacheSet(seed) {
+function Table(seed) {
   if(seed === null) { seed = new Array(); }
   this._cache = seed.slice(0); //shallow copy the seed array
 }
 
-// core CacheSet API
-_.extend(CacheSet.prototype, {
+// core Table API
+_.extend(Table.prototype, {
 insert: function(e) {
   this._cache.push(e);
   //TODO: keep sorted
@@ -136,11 +136,11 @@ delete: function(e) {
 })
 
 //operators
-_.extend(CacheSet.prototype, {
+_.extend(Table.prototype, {
 // filtering operators
 and: function(B) { return new And(this, B); },
 or: function(B) { return new Or(this, B); },
-subset: function(pred) { return new SubSet(this, pred); },
+Where: function(pred) { return new Where(this, pred); },
 distinct: function() { return new Distinct(this); },
 
 // map operators
@@ -153,7 +153,7 @@ scalar: function(field) { return Scalar(this, field); /*CAREFUL: 'new' is WRONG 
 
 })
 
-_.extend(CacheSet.prototype, PourOver.Events); // TODO: use Backbone.Events instead, since that's the original source
+_.extend(Table.prototype, PourOver.Events); // TODO: use Backbone.Events instead, since that's the original source
 // alternately, roll these ideas into PourOver, though that will be difficult without breaking PourOver, or at least its zen.
 
 
@@ -162,29 +162,29 @@ _.extend(CacheSet.prototype, PourOver.Events); // TODO: use Backbone.Events inst
  *  NB: .findIndex is a gecko extension, which we've imported by a polyfill in libs
  *  this
  */
-CacheSet.prototype.findIndex = function(e) {
+Table.prototype.findIndex = function(e) {
   return this._cache.findIndex(function(g) { return is(g,e); });
 }
 
-/* A SubSet is a filtered slice of a CacheSet
- *  and is itself considered a CacheSet
- * Like a SQL View, a SubSet
- *  but a SubSet is more like a Materialized View (c.f. Postgres; also this hack in MySQL: http://www.fromdual.com/mysql-materialized-views)
-  // a SubSet S = SubSet(P, pred) by definition is supposed to maintain the invariant that
+/* A Where is a filtered slice of a Table
+ *  and is itself considered a Table
+ * Like a SQL View, a Where
+ *  but a Where is more like a Materialized View (c.f. Postgres; also this hack in MySQL: http://www.fromdual.com/mysql-materialized-views)
+  // a Where S = Where(P, pred) by definition is supposed to maintain the invariant that
   // S = { e for e in P if pred(e) }
   // which equivalently means
   //  \forall `e`: `e in P` and `pred(e)` => `e in S`
 */
-function SubSet(parent, pred) {
+function Where(parent, pred) {
   var self = this;
   
-  //XXX this would be more elegant if it was a subclass of CacheSet,
+  //XXX this would be more elegant if it was a subclass of Table,
   // but I don't know how to do js inheritance properly
-  // also, it's not clear if a SubSet should allow direct .insert() and .delete()s
-  // TODO: implement .subset(), at least
+  // also, it's not clear if a Where should allow direct .insert() and .delete()s
+  // TODO: implement .Where(), at least
   
   
-  CacheSet.call(this, parent._cache.filter(pred)) //call the super constructor
+  Table.call(this, parent._cache.filter(pred)) //call the super constructor
   
   //  my goal is to avoid having to redefine the methods like insert() and delete() which should come for free
   // in particular, I am *not* rewriting the conviencence methods .and(), .or(), etc; I'm putting them in one place, at the top
@@ -216,7 +216,7 @@ function SubSet(parent, pred) {
     }
   });
 }
-_.extend(SubSet.prototype, CacheSet.prototype);
+_.extend(Where.prototype, Table.prototype);
 // the prototype needs to be cloned from the parent?
 
 // TODO: write a o_cmp which can be used by Array.sort() to order objects; by default, sort() misbehaves on objects
@@ -230,7 +230,7 @@ function And(A, B) {
   // Compute (A and B) as [e for e in A if e in B]
   //TODO: exploit sorting to make this faster
   // as written, this is an O(n^2) step
-  CacheSet.call(this, A._cache.filter(function(a) {
+  Table.call(this, A._cache.filter(function(a) {
     return B._cache.indexOf(a) != -1;
   }));
     
@@ -304,14 +304,14 @@ function And(A, B) {
     }
   });
 }
-_.extend(And.prototype, CacheSet.prototype);
+_.extend(And.prototype, Table.prototype);
 
 // I really need some sort of SortedArray type which has, like, merge() and filter() ops
 
 function Or(A, B) {
   var self = this;
   
-  CacheSet.call(this, A._cache.concat(B._cache));
+  Table.call(this, A._cache.concat(B._cache));
   
   self._A = A;
   self._B = B;
@@ -336,10 +336,10 @@ function Or(A, B) {
   }
   
 }
-_.extend(Or.prototype, CacheSet.prototype);
+_.extend(Or.prototype, Table.prototype);
 
 
-//TODO: maybe rename "SubSet" "Where"
+//TODO: maybe rename "Where" "Where"
 // and "Columns" "Select" to match SQL
 
 function select(o, fields) {
@@ -355,19 +355,19 @@ function select(o, fields) {
 function Map(parent, m) {
   
   var self = this;
-  CacheSet.call(this, parent._cache.map(m));
+  Table.call(this, parent._cache.map(m));
   
   parent.on("insert", function(e) {
     e = m(e);
     self.insert(e);  //warning! 'this' is not 'self' within these event handlers!!
   });
   
-  parent.on("delete", function(e) { // as in "SubSet", we have an invariant that implies that if we actually see a delete we know necessarily we will perform a delete
+  parent.on("delete", function(e) { // as in "Where", we have an invariant that implies that if we actually see a delete we know necessarily we will perform a delete
     e = m(e);
     self.delete(e);
   });
 }
-_.extend(Map.prototype, CacheSet.prototype);
+_.extend(Map.prototype, Table.prototype);
 
 
 /* Columns: select only the given fields
@@ -389,7 +389,7 @@ function Scalar(parent, field) {
   });
 }
 
-// TODO: implement all the PourOver filters as functions that construct predicates and then return a SubSet
+// TODO: implement all the PourOver filters as functions that construct predicates and then return a Where
 // TODO: implement view disposal
 
 var monsters = [{name: "sphinx", mythology: "greek", eyes: 2, sex: "f", hobbies: ["riddles","sitting","being a wonder"]},
@@ -398,7 +398,7 @@ var monsters = [{name: "sphinx", mythology: "greek", eyes: 2, sex: "f", hobbies:
                 {name: "cyclops", mythology: "greek", eyes: 1, sex: "m", hobbies: ["staring","terrorizing","sitting"]},
                 {name: "fenrir", mythology: "norse", eyes: 2, sex: "m", hobbies: ["growing","god-killing","sitting"]},
                 {name: "medusa",  mythology: "greek", eyes: 2, sex: "f", hobbies: ["coiling","staring"]}];
-var P = new CacheSet(monsters);
+var P = new Table(monsters);
 
 function setstr(s) {
   //return Scalar(s, "name")._cache
@@ -406,21 +406,18 @@ function setstr(s) {
 }
 
 
-function test_cacheset() {
+function test_Table() {
 
-console.info("CACHESET TESTS");
+console.info("Table TESTS");
 window.P = P; //DEBUG
 
-var norse_monsters = P.subset(function(m) { return m.mythology == "norse" });
-var sitting_monsters = P.subset(function(m) { return _(m.hobbies).contains("sitting") });
+var norse_monsters = P.Where(function(m) { return m.mythology == "norse" });
+var sitting_monsters = P.Where(function(m) { return _(m.hobbies).contains("sitting") });
+window.norse_monsters = norse_monsters; //DEBUG
 
 console.log("norse_monsters = ", setstr(norse_monsters));
 console.log("sitting_monsters = ", setstr(sitting_monsters));
 
-qq = P._cache.map(function(e) {
-    return e["name"];
-  });
-console.info(qq)
 var names = P.scalar("name");
 console.log("scalar[names] = ", JSON.stringify(names._cache));
 
@@ -478,7 +475,7 @@ console.log("norse OR sitting = ", setstr(norse_or_sitting));
 console.info("");
 
 }
-//test_cacheset();
+test_Table();
 
 
 /*************************

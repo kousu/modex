@@ -42,34 +42,35 @@ lets see if i can get a websocket talking to replicate.py, at least
  *   the address should be a websocket (ws:// or wss://) URL where a replicate.py server is listening.
  */
 // XXX is it possible to write this as a mixin? it would require some way to hook the constructor.
-function HDRJCacheSet(address) {
-    var set = new CacheSet([]);
-    var feed = new HDRJ(address);
+function HDRJTable(address) {
     
-    feed.on("insert", function(row) {
-        set.insert(row);
+    var self = this;
+    Table.call(this, []);
+    this.feed = new HDRJ(address);
+    
+    this.feed.on("insert", function(row) {
+        self.insert(row); //warning: 'this' is not 'self' inside these handlers
     })
 
-    feed.on("update", function(old_row, new_row) {
-        set.delete(old_row);
-        set.insert(new_row);
+    this.feed.on("update", function(old_row, new_row) {
+        self.delete(old_row);
+        self.insert(new_row);
     })
 
-    feed.on("delete", function(row) {
-        set.delete(row);
+    this.feed.on("delete", function(row) {
+        self.delete(row);
     })
-
-    return set;
 }
+_.extend(HDRJTable.prototype, Table.prototype);
 
- var DB = new HDRJCacheSet("ws://" + location.hostname + ":8081");
+ var DB = new HDRJTable("ws://" + location.hostname + ":8081");
  DB.on("rerender", function() {
     //console.log("The Films are now ", JSON.stringify(films._cache))
     console.log("Now have",this._cache.length, "rows.");
  })
  
- var wheat = new Select(DB, ["time", "durumWheatConventional"])
- var organic_wheat = new Select(DB, ["time", "durumWheatGreen"])
+ var wheat = DB.select(["time", "durumWheatConventional"])
+ var organic_wheat = DB.select(["time", "durumWheatGreen"])
  wheat.on("rerender", function() {
    console.log("Conventional Wheat, by time, across all runs: ", _(_(this._cache).sortBy(function(o) { return o['time']})).pluck("durumWheatConventional"));
  });
