@@ -1,0 +1,10 @@
+spooled #0
+spooled #1
+spooled #2
+spooled #3
+spooled #4
+spooled #5
+Traceback (most recent call last):
+  File "./spool.py", line 13, in <module>
+    print("[%d] %d" % (i, f))
+BrokenPipeError: [Errno 32] Broken pipe
