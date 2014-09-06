@@ -62,15 +62,28 @@ $$
   print("\tto")
   sock = socket.socket(socket.AF_UNIX, socket.SOCK_DGRAM);
   for o in clients:
-    print(o)
+    print("\t",o)
     try:
       event = event.encode("utf-8")
       
       plpy.debug("\twriting |%s| to %s" % (event, sock.getsockname()))
       sock.sendto(event, o['addr'])
     except Exception as e:
-      warn("unable to write to client socket %s: %s" % (o['addr'], e))
-      pass
+      warn("\tunable to write to client socket %s: %s" % (o['addr'], e))
+      
+      # Forcibly unregister a miss
+      # Be aware that this only happens when someone writes to
+      #  so even though this is defensive coding, it does not totally prevent an attacker from eating up resources
+      #  so long as that attacker can cause large numbers of phantom register()s between writes
+      # BEWARE: if you are trying to debug the sockets, consider commenting this out 
+      #  so that you can use netcat to listen at will to the backend sockets
+      plant = plpy.prepare("select my_pg_replicate_unregister($1)", ['text'])
+      unreged = plpy.execute(plant, [o['stream_id']])
+      unreged = unreged[0].values()[0] #extract scalar return code
+      if unreged:
+        warn("\t\tForcibly unregistered %s" % (o['addr'],))
+      else:
+        warn("\t\tUnable to unregister %s" % (o['addr'],))
   
   sock.close()
   print("</broadcast>")
