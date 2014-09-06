@@ -20,7 +20,7 @@ SERVER="./replicate.sh \"${DB}\" \"${TABLE}\""
 # rather than use up a TCP port for the websockify <--> socat connection
 # use a unix domain socket instead
 # TODO: name this better / use mkstemp / something
-IPC=/tmp/s_websockify_replicate_$table
+IPC=/tmp/s_websockify_replicate_${TABLE}
 
 
 # terminate all children (websockify, etc) on exit
