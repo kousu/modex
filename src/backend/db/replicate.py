@@ -43,6 +43,8 @@ import signal, threading
 import sqlalchemy, json
 
 
+import logging
+logging.getLogger().setLevel(logging.DEBUG)
 
 
 if os.uname().sysname == "Darwin":
@@ -60,9 +62,41 @@ if os.uname().sysname == "Darwin":
 
 
 
-import logging
 
-logging.getLogger().setLevel(logging.DEBUG)
+def shutdown():
+    """
+    Tell all the spools in this program that are blocked on select() to stop.
+    
+    This should be triggered by
+     SIGINT
+     SIGQUIT
+     SIGTERM
+     and by stdin or stdout closing
+    but not by
+      SIGKILL (which we cannot catch anyway)
+      SIGSTOP (which we cannot catch anyway)
+      SIGABRT (which we can catch but means roughly the same as SIGKILL: "die without cleaning up")
+    and not by stderr
+    TODO: write tests which cover all these cases
+    """
+    global shutdown_socket
+    shutdown_socket.close()
+    
+def shutdown_on_signal(SIG, stack_frame):
+    shutdown()
+    
+
+def alivethread():
+    """
+    poll stdin for EOF, and signal shutdown when that occurs
+    """
+    while True:
+        select.select([sys.stdin],[],[]) #block
+        if sys.stdin.read(1) == "": #EOF
+            break
+    shutdown()
+
+
 
 
 class Changes:
@@ -195,38 +229,6 @@ def replicate(_table):
     # NOTREACHED (unless something crashes, the changes feed should be infinite, and a crash would crash before this line anyway)
 
 
-def shutdown():
-    """
-    Tell all the spools in this program that are blocked on select() to stop.
-    
-    This should be triggered by
-     SIGINT
-     SIGQUIT
-     SIGTERM
-     and by stdin or stdout closing
-    but not by
-      SIGKILL (which we cannot catch anyway)
-      SIGSTOP (which we cannot catch anyway)
-      SIGABRT (which we can catch but means roughly the same as SIGKILL: "die without cleaning up")
-    and not by stderr
-    TODO: write tests which cover all these cases
-    """
-    global shutdown_socket
-    shutdown_socket.close()
-    
-def shutdown_on_signal(SIG, stack_frame):
-    shutdown()
-    
-
-def alivethread():
-    """
-    poll stdin for EOF, and signal shutdown when that occurs
-    """
-    while True:
-        select.select([sys.stdin],[],[]) #block
-        if sys.stdin.read(1) == "": #EOF
-            break
-    shutdown()
 
 
 def main():
@@ -252,7 +254,7 @@ def main():
         #print(delta, flush=True) #py3
         print (delta); sys.stdout.flush() #py2/3
 
-    # we do not need to join AT because it has no clean up to do
+    # we do not need to AT.join() because it has no clean up to do
 
 if __name__ == '__main__':
     main()
