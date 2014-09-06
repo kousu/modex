@@ -241,14 +241,16 @@ def main():
     for SIG in [signal.SIGTERM, signal.SIGQUIT]: #XXX do I need to set SIGINT here, or does python's default of raising KeyboardInterrupt serve well enough?
         signal.signal(SIG, shutdown_on_signal)
     
-    AT = threading.Thread(target=alivethread)
-    AT.start()
+    # start up the thread to monitor stdin for EOF (i.e. when a client disconnects)
+    # we do not need to hold onto this thread because it is a daemon and has no clean up to do
+    # so we can start it immediately
+    threading.Thread(target=alivethread, daemon=True).start()
     
     for delta in replicate(table):
         #print(delta, flush=True) #py3
         print (delta); sys.stdout.flush() #py2/3
 
-    # we do not need to AT.join() because it has no clean up to do
+    
 
 if __name__ == '__main__':
     main()
