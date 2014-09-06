@@ -25,12 +25,13 @@ IPC=/tmp/s_websockify_replicate_${TABLE}
 
 # terminate all children (websockify, etc) on exit
 # tip from http://stackoverflow.com/questions/360201/kill-background-process-when-shell-script-exit
-#trap 'kill $(jobs -p)' EXIT #?? doesn't work
-
+# but note that we trap both "TERM" which is a unix signal and "EXIT" which is a bash-ism that catches normal termination
+# also, the alternate form 'kill 0' which sends TERM to *all descendents* (not just immediate ones)
+trap 'kill $(jobs -p)' TERM EXIT
+#trap 'kill 0' TERM EXIT
 
 # start up websockify, daemonized, waiting for connections to proxy to socat
 websockify $PORT --unix-target=$IPC &  #NB: it is important; it might be more robust to just give up on bash and use subprocess.py instead...
-WEBSOCKIFY=$!
 
 # start up socat, proxying TCP to the replication server
 # reusaddr gets around lingering (e.g. TIME_WAIT) connections blocking the new bind(),
@@ -38,4 +39,3 @@ WEBSOCKIFY=$!
 socat UNIX-LISTEN:$IPC,fork,reuseaddr EXEC:"$SERVER"
 # we don't background socat because we need something to hold this script open
 
-kill $WEBSOCKIFY
