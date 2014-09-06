@@ -158,75 +158,69 @@ class Changes:
     next = __next__ #py2 compatibility
   
 
-def replicate(_table):
-  """
+def replicate(table):
+    # XXX we might need to construct the Changes stream first
+    #  If we do have concurrency problems, doing that at least guarantees that we don't miss any changes, though we might end up with duplicate rows or trying to delete nonexistent rows
+
+    # 2) get a handle on the change stream beginning at the commit postgres was at *now* (?? maybe this involves locking?)
+    #  XXX we're relying on the time between the select and Changes.__enter__() to be small enough to be atomically
+    #   but that's never absolutely true so this has a race condition!
+    #  It would be better if we could ask postgres
+    #   "what is the lamport clock of our previous select", which postgres internally records [CITE: ....]
+    #  And then say "with Changes(_table,[ columns,][ where,] from=clock)"
+    # (NB: a lamport clock is a count of events; it has nothing to do with real time except that it always increases in time, making it suitable for synchronizing concurrent processes even when their system clocks might skew)
+    # but postgres doesn't seem(?) to provide a way to extract; it just uses timelines to make sure every session sees a consistent set of data.
+    # this is sort of tricky
+    # I need to say somethign like
   
-  ctl_sock should be a socket that 
-  """
-  
-  # XXX we might need to construct the Changes stream first
-  #  If we do have concurrency problems, doing that at least guarantees that we don't miss any changes, though we might end up with duplicate rows or trying to delete nonexistent rows
-  
-  # 2) get a handle on the change stream beginning at the commit postgres was at *now* (?? maybe this involves locking?)
-  #  XXX we're relying on the time between the select and Changes.__enter__() to be small enough to be atomically
-  #   but that's never absolutely true so this has a race condition!
-  #  It would be better if we could ask postgres
-  #   "what is the lamport clock of our previous select", which postgres internally records [CITE: ....]
-  #  And then say "with Changes(_table,[ columns,][ where,] from=clock)"
-  # (NB: a lamport clock is a count of events; it has nothing to do with real time except that it always increases in time, making it suitable for synchronizing concurrent processes even when their system clocks might skew)
-  # but postgres doesn't seem(?) to provide a way to extract; it just uses timelines to make sure every session sees a consistent set of data.
-  # this is sort of tricky
-  # I need to say somethign like
-  
-  with Changes(_table) as changes: #<-- use with to get the benefits of RAII, since Changes has a listening endpoint to worry about cleaning up
-    
-    # README: BUGFIX: the change to raw_connection() caused a deadlock which only occurs the first time register() is called: register() needs to create a trigger on _table, but cur holds a lock on _table
-    #  it seems, however, that reordering the instructions avoids the deadlock
-    #  and i was already considering doing this; this order means we potentially have overlapping state in the Changes and cur feeds
-    # 1) get a cursor on the current query
-    #plan = plpy.prepare("select * from $1", ["text"]) # use a planner object to safeguard against SQL injection #<--- ugh, but postgres disagrees with this; I guess it doesn't want the table name to be dynamic..
-    #print("the plan is", plan)
-    #cur = plpy.cursor(plan, [_table]);
-    # stream_results is turned on for this query so that this line takes as little time as 
-    
-    # XXX question: are we allowed to have multiple results open during a single connection? Does this cause deadlocks? This program only uses *one* result set: the Changes feed is not coming from a resultset, it's listening to a socket.
-    
-    C_DBAPI = E.raw_connection()
-    #cur = C.execution_options(stream_results=False).execute("select * from %s" % (_table,))
-    
-    cur = C_DBAPI.cursor()
-    # XXX this needs to be wrapped in a try: ... finally: C_DBAPI.close()
-    cur.execute("select * from %s" % (_table,))
-    
-  # 3) spool out the current state
-  # ---------------------------------------------------
-    #import IPython; IPython.embed()
-    keys = [col.name for col in cur.description] #low level SQLAlchemy (psycopg2, in this case)
-    #keys = cur.keys() #SQLAlchemy
-    for row in cur:
-      # if we've been told to shutdown
-      # fail-fast
-      if select.select([shutdown_listener], [], [],0)[0]: # the ",0" is key here! it means "do polling" instead of "do blocking"
-        break
-      
-      # else
-      # spool the next row
-      row = dict(zip(keys, row))  #coerce the SQLAlchemy row format to a dictionary
-      #convert row to our made up delta format ("HDRJ")
-      delta = {"+": row} #pretend that the existing rows are actually inserts
-      delta = json.dumps(delta) #and then to JSON
-      yield delta
-    # do I need to explicitly close the cursor?
-  
-    cur.close()
-    C_DBAPI.close()
-  
-  # 4) spin, spooling out the change stream
-  # ---------------------------------------------------
-    for delta in changes:
-      # we assume that the source (watch_table()) has already jsonified things for us; THIS MIGHT BE A MISTAKE
-      yield delta
-    # NOTREACHED (unless something crashes, the changes feed should be infinite, and a crash would crash before this line anyway)
+    with Changes(table) as changes: #<-- use with to get the benefits of RAII, since Changes has a listening endpoint to worry about cleaning up
+
+        # README: BUGFIX: the change to raw_connection() caused a deadlock which only occurs the first time register() is called: register() needs to create a trigger on _table, but cur holds a lock on _table
+        #  it seems, however, that reordering the instructions avoids the deadlock
+        #  and i was already considering doing this; this order means we potentially have overlapping state in the Changes and cur feeds
+        
+        # 1) get a cursor on the current query
+
+        # XXX question: are we allowed to have multiple results open during a single connection? Does this cause deadlocks? This program only uses *one* result set: the Changes feed is not coming from a resultset, it's listening to a socket.
+
+        # get current state with SQLAlchemy #XXX commented out because this was causing a deadlock; TODO: revisit and see if you can avoid using raw_connection()
+        # stream_results is turned on for this query so that this line takes as little time as possible
+        #cur = C.execution_options(stream_results=False).execute("select * from %s" % (_table,))
+        
+
+        C_DBAPI = E.raw_connection()
+        cur = C_DBAPI.cursor()
+        try:
+            cur.execute("select * from %s" % (table,)) #XXX SQL INJECTION HERE
+
+        # 3) spool out the current state
+        # ---------------------------------------------------
+            keys = [col.name for col in cur.description] #low level SQLAlchemy (psycopg2, in this case)
+            #keys = cur.keys() #SQLAlchemy
+            for row in cur:
+                # if we've been told to shutdown
+                # fail-fast
+                if select.select([shutdown_listener], [], [],0)[0]: # the ",0" is key here! it means "do polling" instead of "do blocking"
+                    break
+
+                # else
+                # spool the next row
+                row = dict(zip(keys, row))  #coerce the SQLAlchemy row format to a dictionary
+                #convert row to our made up delta format ("HDRJ")
+                delta = {"+": row} #pretend that the existing rows are actually inserts
+                delta = json.dumps(delta) #and then to JSON
+                yield delta
+            # do I need to explicitly close the cursor?
+        finally:
+            cur.close()
+            C_DBAPI.close()
+
+        # 4) spin, spooling out the change stream
+        # ---------------------------------------------------
+        for delta in changes:
+            # we assume that the source (watch_table()) has already jsonified things for us; THIS MIGHT BE A MISTAKE
+            yield delta
+            # NOTREACHED (unless something crashes, the changes feed should be infinite, and a crash would crash before this line anyway)
 
 
 
