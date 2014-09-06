@@ -35,20 +35,29 @@ Concurrency bugs:
  
 """
 
-import os
+import sys
+import os, tempfile
+import socket, select
+import signal, threading
 
-# there's deployment issues on OS X:
-# http://stackoverflow.com/questions/16407995/psycopg2-image-not-found
-os.environ["DYLD_LIBRARY_PATH"] = "/Applications/Postgres.app/Contents/Versions/9.3/lib/" 
-#+ ":" + os.environ.setdefault("DYLD_LIBRARY_PATH","")
-import psycopg2
-
-import sqlalchemy
+import sqlalchemy, json
 
 
-import os, tempfile, socket, select
-import json
-import os
+
+
+if os.uname().sysname == "Darwin":
+    # there's deployment issues on OS X:
+    # http://stackoverflow.com/questions/16407995/psycopg2-image-not-found
+    # this is an unfinished hack to get around it which might not even work
+    os.environ["DYLD_LIBRARY_PATH"] = "/Applications/Postgres.app/Contents/Versions/9.3/lib/"
+    #+ ":" + os.environ.setdefault("DYLD_LIBRARY_PATH","")
+    try:
+        import psycopg2
+    except ImportError:
+        sys.stderr.write("Unable to import psycopg2 under OS X. Do you have Postgres.app installed? Do you have DYLD_FALLBACK_LIBRARY_PATH set to point at it?")
+        # TODO: print traceback here
+        sys.exit(3)
+
 
 
 import logging
@@ -56,16 +65,6 @@ import logging
 logging.getLogger().setLevel(logging.DEBUG)
 
 
-#import IPython; IPython.embed()
-
-# We are allowed to have multiple ResultProxies open during a single connection.
-# 
-
-
-  # this is code that should be library code
-  # but installing it such that postgres can read it
-  # and without stomping on other things too badly is hard
-  # so for now it is just loaded here over and over again
 class Changes:
     MTU = 2048 #maximum bytes to read per message
     
@@ -156,7 +155,9 @@ def replicate(_table, ctl_sock):
     #plan = plpy.prepare("select * from $1", ["text"]) # use a planner object to safeguard against SQL injection #<--- ugh, but postgres disagrees with this; I guess it doesn't want the table name to be dynamic..
     #print("the plan is", plan)
     #cur = plpy.cursor(plan, [_table]);
-    # stream_results is turned on for this query so that this line takes as little time as possible
+    # stream_results is turned on for this query so that this line takes as little time as 
+    
+    # XXX question: are we allowed to have multiple results open during a single connection? Does this cause deadlocks? This program only uses *one* result set: the Changes feed is not coming from a resultset, it's listening to a socket.
     
     C_DBAPI = E.raw_connection()
     #cur = C.execution_options(stream_results=False).execute("select * from %s" % (_table,))
@@ -177,7 +178,8 @@ def replicate(_table, ctl_sock):
       
       # spool the next row
       row = dict(zip(keys, row))  #coerce the SQLAlchemy row format to a dictionary
-      delta = {"+": row} #convert row to our made up delta format; the existing rows can all be considered inserts
+      #convert row to our made up delta format ("HDRJ")
+      delta = {"+": row} #pretend that the existing rows are actually inserts
       delta = json.dumps(delta) #and then to JSON
       yield delta
     # do I need to explicitly close the cursor?
@@ -193,24 +195,41 @@ def replicate(_table, ctl_sock):
     # NOTREACHED (unless something crashes, the changes feed should be infinite, and a crash would crash before this line anyway)
 
 
-import threading
+def shutdown():
+    """
+    Tell all the spools in this program that are blocked on select() to stop.
+    
+    This should be triggered by
+     SIGINT
+     SIGQUIT
+     SIGTERM
+     and by stdin or stdout closing
+    but not by
+      SIGKILL (which we cannot catch anyway)
+      SIGSTOP (which we cannot catch anyway)
+      SIGABRT (which we can catch but means roughly the same as SIGKILL: "die without cleaning up")
+    and not by stderr
+    TODO: write tests which cover all these cases
+    """
+    global ctl
+    ctl.close()
+    
+def shutdown_on_signal(SIG, stack_frame):
+    shutdown()
+    
 
-# have one thread, the alive thread, watching for (this can just
-# and the Repl
-def replicatethread(table, ctl_sock):
-    ctl, ctl_slave = ctl_sock
-    try:
-        for delta in replicate(table, ctl_slave):
-            #print(delta, flush=True) #py3
-            print (delta); sys.stdout.flush() #py2/3
-    finally:
-        ctl.close()  # NB: unix doesn't care if a socket is closed multiple times
+def alivethread():
+    """
+    poll stdin for EOF, and signal shutdown when that occurs
+    """
+    while True:
+        select.select([sys.stdin],[],[]) #block
+        if sys.stdin.read(1) == "": #EOF
+            break
+    shutdown()
 
 
-# TODO: use the signal module to trap things that might eat us and rewrite them as "ctl.close()" so that cleanup can happen properly
-if __name__ == '__main__':
-
-    import sys
+def main():
     postgres, table = sys.argv[1:]
     
     assert postgres.startswith("postgresql://"), "Must be a valid sqlalchemy-to-postgres connection string" #XXX there are connection strings which spec the driver to use which are valid too; this assertion is too strong
@@ -220,32 +239,20 @@ if __name__ == '__main__':
     global E
     E = sqlalchemy.create_engine(postgres) #TODO: deglobalize
 
-    
+    global ctl
     ctl, ctl_slave = socket.socketpair() #when this socket closes all spools (all two of them, but it could be generalized) should shut down immediately
     
-    RT = threading.Thread(target=replicatethread, args=(table, (ctl, ctl_slave)))
-    RT.start()
+    for SIG in [signal.SIGTERM, signal.SIGQUIT]: #XXX do I need to set SIGINT here, or does python's default of raising KeyboardInterrupt serve well enough?
+        signal.signal(SIG, shutdown_on_signal)
     
-    # TODO: for symmetry, there should be an "AT" (alivethread) which does the stdin checking
-    # and main() should simply .join() all the threads, and assume that they'll inter-signal each other and shutdown cleanly
-    # XXX speaking of signals, what if I used them? It would be more unixey, in one sense. I would probably still need a socketpair() call in order to be able to map a signal into something I can select() on
+    AT = threading.Thread(target=alivethread)
+    AT.start()
     
-    try:
-        while True:
-            fread, fwrite, ferr = select.select([sys.stdin, ctl_slave], [], [])
-            #print("alivethread:", (fread, fwrite, ferr), file=sys.stderr)
-            if sys.stdin in fread:
-                #print("alivethread:", "break stdin",file=sys.stderr)
-                if sys.stdin.read(1) == "":
-                    break
-            if ctl_slave in fread:
-                #print("alivethread:", "break ctl",file=sys.stderr)
-                if ctl_slave.recv(1) == "":
-                    break
-            #if sys.stdout in ferr:
-            #    print("alivethread:", "break stdout",file=sys.stderr)
-            #    break
-    finally:
-        ctl.close()
-    
-    RT.join() #give the replication a chanc eto clean up after itself
+    for delta in replicate(table, ctl_slave):
+        #print(delta, flush=True) #py3
+        print (delta); sys.stdout.flush() #py2/3
+
+    # we do not need to join AT because it has no clean up to do
+
+if __name__ == '__main__':
+    main()
