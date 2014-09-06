@@ -7,6 +7,7 @@
 --  [ ] Install these hooks into a spare tablespace
 --  [ ] Make sure these hooks can be deployed to production servers
 --  [ ] Do load tests to make sure these hooks don't lag out the server; actually formatting and compacting the IP packets should perhaps be pushed out to an external process
+--  [ ] Fix the SQL Injections (the table ones are a problem; maybe the postgres mailing list will have some ideas; maybe plpy provides a sanitize() function
 
 CREATE OR REPLACE LANGUAGE plpython2u;
 
@@ -147,6 +148,11 @@ CREATE TABLE my_pg_replicate_clients (stream_id text PRIMARY KEY, addr text UNIQ
 select 'installing my_pg_replicate_triggers';
 -- a simple data structure to refcount how active clients are watching any table
 --  when the number of clients drop to zero, we can remove the parasitic trigger
+-- Note: in SQL theory, this is a form of denormalization (ie data redundancy),
+-- since the values in this table (should be) equal to
+--   select _table, count(_table) from my_pg_replicate_clients group by _table;
+-- I argue that we want to trade redundancy for speed in this case, since otherwise
+--  each unregister() could take a very long time, at least until a significant number of unregister()s happen
 DROP TABLE IF EXISTS my_pg_replicate_triggers;
 CREATE TABLE my_pg_replicate_triggers (_table text PRIMARY KEY, uses int);
 
@@ -168,12 +174,15 @@ $$
   r = plpy.execute("select _table from my_pg_replicate_triggers where _table = '%s'" % (_table,))
   #import IPython; IPython.embed()
   if r.nrows():
-    #XXX SQL injection
-    plpy.execute("update my_pg_replicate_triggers set uses = uses + 1 where _table = '%s'" % (_table,))
+    plant = plpy.prepare("update my_pg_replicate_triggers set uses = uses + 1 where _table = $1", ['text'])
+    plpy.execute(plant, [_table])
   else:
     # table is currently unwatched; generate a random name and install the trigger
     # XXX edge case: if we drop the replicate_triggers table while triggers are still active  (eg reloading this file) it's possible that the trigger will already be installed
     #  Since the number of times this happens should be small (famous last words..), it won't hurt to just recreate it every time
+    #XXX SQL INJECTION
+    # --> there's no way to get around this injection with a prepared statement, since postgres only allows specifying values, not tables, as prepared statement parameters
+    # 
     plpy.execute("DROP TRIGGER IF EXISTS watch_table on %s" % (_table,))
     plpy.execute(
     """CREATE TRIGGER watch_table
@@ -195,10 +204,29 @@ $$ LANGUAGE plpython2u;
 select 'installing my_pg_replicate_unregister';
 CREATE OR REPLACE FUNCTION my_pg_replicate_unregister(stream_id text) RETURNS bool AS
 $$
+  plant = plpy.prepare("select _table from my_pg_replicate_clients where stream_id = $1", ["text"])
+  _table = plpy.execute(plant, [stream_id])
+  _table = _table[0].values()[0] #scalarify
+  
   plant = plpy.prepare("delete from my_pg_replicate_clients where stream_id = $1", ["text"])
   plpy.execute(plant, [stream_id])
-  return True; #TODO: check if the query did anything (?? does execute() return a list of affected rows or something we can look at?)
   
-  # TODO:
-  # this function should also uninstall triggers if there are no listeners for _table left
+  plant = plpy.prepare("select uses from my_pg_replicate_triggers where _table = $1", ['text'])
+  uses = plpy.execute(plant, [_table])
+  uses = uses[0].values()[0] #scalarify
+  if uses > 1:
+    # case 1: simple decrement
+    plant = plpy.prepare("update my_pg_replicate_triggers set uses = uses - 1 where _table = $1", ['text'])
+    plpy.execute(plant, [_table]) 
+  else:
+    # case 2: total removal
+    # 2a) decrement (which we write as a delete)
+    plant = plpy.prepare("delete from my_pg_replicate_triggers where _table = $1", ['text'])
+    plpy.execute(plant, [_table])
+    
+    # 2b) remove the trigger, since there are no more users of it currently
+    # XXX SQL injection: we cannot use a prepared statement to pass a table :/
+    plpy.execute("DROP TRIGGER watch_table on %s" % (_table,))
+      
+  return True; #TODO: check if the stream_id was actually there and was actually deleted
 $$ LANGUAGE plpython2u;
