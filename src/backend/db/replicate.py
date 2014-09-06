@@ -68,10 +68,9 @@ logging.getLogger().setLevel(logging.DEBUG)
 class Changes:
     MTU = 2048 #maximum bytes to read per message
     
-    def __init__(self, table, ctl_sock): #TODO: support where clauses
+    def __init__(self, table): #TODO: support where clauses
       self._table = table
       self._stream_id = None
-      self._ctl_sock = ctl_sock
       
     def __enter__(self):
       # set up our listening socket
@@ -112,13 +111,12 @@ class Changes:
       return self
     
     def __next__(self):
-      fread, fwrite, ferr = select.select([self._sock, self._ctl_sock], [], [self._sock, self._ctl_sock])  #block until some data is available
+      fread, fwrite, ferr = select.select([self._sock, shutdown_listener], [], [self._sock, shutdown_listener])  #block until some data is available
       if ferr:
-        pass #XXX
+        pass #XXX what should we do in this case?
       else:
-        if self._ctl_sock in fread:
-            if not self._ctl_sock.recv(1):
-                raise StopIteration
+        if shutdown_listener in fread: #check for EOF from shutdown_socket
+            raise StopIteration
         pkt = self._sock.recv(Changes.MTU)
         pkt = pkt.decode('utf-8')
         return pkt
@@ -126,7 +124,7 @@ class Changes:
     next = __next__ #py2 compatibility
   
 
-def replicate(_table, ctl_sock):
+def replicate(_table):
   """
   
   ctl_sock should be a socket that 
@@ -146,7 +144,7 @@ def replicate(_table, ctl_sock):
   # this is sort of tricky
   # I need to say somethign like
   
-  with Changes(_table, ctl_sock) as changes: #<-- use with to get the benefits of RAII, since Changes has a listening endpoint to worry about cleaning up
+  with Changes(_table) as changes: #<-- use with to get the benefits of RAII, since Changes has a listening endpoint to worry about cleaning up
     
     # README: BUGFIX: the change to raw_connection() caused a deadlock which only occurs the first time register() is called: register() needs to create a trigger on _table, but cur holds a lock on _table
     #  it seems, however, that reordering the instructions avoids the deadlock
@@ -172,10 +170,12 @@ def replicate(_table, ctl_sock):
     keys = [col.name for col in cur.description] #low level SQLAlchemy (psycopg2, in this case)
     #keys = cur.keys() #SQLAlchemy
     for row in cur:
-      # fail-fast if we've been told to shutdown
-      if select.select([ctl_sock], [], [],0)[0]: # the ",0" is key here! it means "do polling" instead of "do blocking"
+      # if we've been told to shutdown
+      # fail-fast
+      if select.select([shutdown_listener], [], [],0)[0]: # the ",0" is key here! it means "do polling" instead of "do blocking"
         break
       
+      # else
       # spool the next row
       row = dict(zip(keys, row))  #coerce the SQLAlchemy row format to a dictionary
       #convert row to our made up delta format ("HDRJ")
@@ -211,8 +211,8 @@ def shutdown():
     and not by stderr
     TODO: write tests which cover all these cases
     """
-    global ctl
-    ctl.close()
+    global shutdown_socket
+    shutdown_socket.close()
     
 def shutdown_on_signal(SIG, stack_frame):
     shutdown()
@@ -239,8 +239,8 @@ def main():
     global E
     E = sqlalchemy.create_engine(postgres) #TODO: deglobalize
 
-    global ctl
-    ctl, ctl_slave = socket.socketpair() #when this socket closes all spools (all two of them, but it could be generalized) should shut down immediately
+    global shutdown_socket, shutdown_listener
+    shutdown_socket, shutdown_listener = socket.socketpair() #when this socket closes all spools (all two of them, but it could be generalized) should shut down immediately
     
     for SIG in [signal.SIGTERM, signal.SIGQUIT]: #XXX do I need to set SIGINT here, or does python's default of raising KeyboardInterrupt serve well enough?
         signal.signal(SIG, shutdown_on_signal)
@@ -248,7 +248,7 @@ def main():
     AT = threading.Thread(target=alivethread)
     AT.start()
     
-    for delta in replicate(table, ctl_slave):
+    for delta in replicate(table):
         #print(delta, flush=True) #py3
         print (delta); sys.stdout.flush() #py2/3
 
