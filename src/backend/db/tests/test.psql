@@ -7,7 +7,11 @@
 DROP TABLE IF EXISTS films CASCADE;
 CREATE TABLE films (name text, kind text, rating int);
 
-\COPY films FROM './films.sql'; -- COPY runs on the server, Hence, the client commanding the server to load a file *must give a full path*, because it doesn't know where the server is. Conversely, \COPY runs on the client, which, if the server is remote, might be a large amount of data. See <https://wiki.postgresql.org/wiki/COPY>
+\COPY films FROM './tests/films.sql'; 
+-- COPY vs \COPY:
+-- COPY runs on the server, Hence, the client commanding the server to load a file *must give a full path*,
+-- because in principle it doesn't know where the server is.
+-- Conversely, \COPY runs on the client, which, if the server is remote, might be a large amount of data. See <https://wiki.postgresql.org/wiki/COPY>
 
 INSERT INTO films VALUES ('Grass', 'Documentary', 0);
 INSERT INTO films VALUES ('The Mail Man', 'Documentary', 3);
