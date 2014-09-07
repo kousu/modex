@@ -1,11 +1,18 @@
 #!/usr/bin/env bash
-
-# this script lets you run postgres without needing root
-# it also handles any platform-specific cruft needed to get this system up
-
-# before running this, do
-# initdb ./data/
+# usage:
+#  [optional] export PGDATA=... # path to where to the postgres backend data files
+#  [optional] export PGHOST=... #path to where to place the listening socket
+#  [optional] export PGPORT=11234
+#  ./server.sh
 #
+ 
+# this script lets you run postgres without needing root
+# it also handles any ugly platform-specific cruft
+#
+# before running this run init.sh
+
+pushd $(dirname $0) >/dev/null; HERE=`pwd`; popd >/dev/null
+source $HERE/pg_vars.sh
 
 if [ `uname` = "Darwin" ]; then
   # OS X has several possible python distros
@@ -14,13 +21,12 @@ if [ `uname` = "Darwin" ]; then
   # so we need to ensure the Apple python is the one loaded
   # or else strange library errors will crop up
   # 
-  # Unfortunately, I'm having trouble building psycopg2 against the system python, so we clients (ie replicate.py) has to be run with Anaconda Python
+  # But there's different linking errors on the client side, so 
+  # this line is in server.sh to keep the invasiveness small.
   
   export PATH=/usr/bin:$PATH 
 fi
 
-pushd $(dirname $0) >/dev/null; HERE=`pwd`; popd >/dev/null
-cd $HERE
-
-#"-k ." is the magic that means "put your socket file in your current directory" and not in /var/run which you would need to fight permissions on
-postgres -D ./data/  -k .
+#'-h ""' disables TCP
+#'"-k ."' is the magic that means "put your socket file here and not in /var/run" which you would need to with fight permissions for
+postgres -D $PGDATA -h "" -k $PGHOST 

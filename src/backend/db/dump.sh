@@ -6,6 +6,6 @@
 #
 
 pushd $(dirname $0) >/dev/null; HERE=`pwd`; popd >/dev/null
-cd $HERE
+source $HERE/pg_vars.sh
 
-pg_dump -h $HERE/data/ -d postgres
+pg_dump
