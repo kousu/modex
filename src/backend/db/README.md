@@ -16,52 +16,73 @@ To start, make sure you have installed python, postgresql with the pl/python ext
 
 1) set up the database 
 ```
-$ cd modex/scratch/psql
-$ initdb data/ #initialize postgres('s data)
-$ ./server.sh  #start postgres
-$ ./client.sh < replicate.pysql #load the replicate.py hooks into postgres
-$ ./client.sh    #open up postgres and set up some tables, e.g. the 'films' table from test.sql
+$ ./init.sh sim1
+$ ./server.sh
 ```
 
-2) run the websocket replication server
-```
-$ cd modex/scratch/psql
-$ ./replicate_server.sh 8081 films  #in this case, ws://localhost:8081 will replicate table films
-```
-The 8081 is important here, since that port number is hardcoded in the javscript.
+Note: you can also set PGDATABASE instead of providing your database ("sim1" in this case) on the command line.
 
-3) run the frontend
+2) 
+$ # In a second terminal
+$ ./client.sh sim1 < tests/test.psql #set up some tables for experimenting: curently loads the 'films' table
 ```
-$ cd modex/
+
+3) run the websocket replication server
+```
+$ # In a third terminal
+$ ./replicate_server.sh 8081 postgresql:///sim1?host=`pwd`/data/ films  
+```
+The 8081 is important here, since that port number is hardcoded in the javscript demos.
+Using `pwd` is important here in order to convince SQLAlchemy to speak to a unix domain socket--which is the only way to speak to the devel postgres that ./server.sh spawns.
+This step is the kludgiest part of the system, and will be cleaned up some day so that
+you need only run one server script that spawns then reaps all the rest.
+
+4) run the frontend
+In the **project root**
+```
+$ # In a fourth terminal
 $ python -m SimpleHTTPServer  #or http.server for python3
-$ firefox http://localhost:8000/src/frontend/pourgraph.html
 ```
-(and open up the js console to watch the action)
 
-4) apply some updates (e.g. the second batch of lines about films from test.sql)
+and go to http://localhost:8000/src/frontend/setgraph.html in your browser and open up the js console to watch the action.
+The `DB` object contains the replicated table.
+
+5) Write to the database
 Any `INSERT`, `UPDATE` or `DELETE` done on the command line should immediately show up in your js console.
-
-
-To reset
 ```
-$ rm -r data/
+# Back in the second terminal
+$ ./client.sh sim1
+sim1=# insert into films values ('SuaveMan', 'Romantic Comedy', -3);
+INSERT 0 1
+sim1=# delete from films where rating < 5;
+DELETE 6
+sim1=# 
+```
+Pay attention to the frontend as you do this.
+
+You can also run one of the simulations that has been retrofitted with `SimulationLog` and point
+ it at postgres (instead of its default of using RAM) using SQLAlchemy connection strings.
+If you then rerun the replication server on one of that simulation's tables, the frontend will end up with that instead,
+and rerunning the simulation will append to the `DB` object in simulated real time.
+
+To reset, just run
+```
+$ ./reset.sh
 ```
  and start at the top.
+
+
 
 Issues
 ------
 
-* Security: exposing the raw SQL protocol to the web has lots of implicit problems.
-  Better idea: flesh out replicant.py until it can speak to postgres, have it reformat the WAL logs into JSON and ship those, read-only. We can even drop Websockify (though it might simply be easier and more reliable to chain a pipe + nc + websockify together) 
+* Security: exposing SQL operations, even indirectly, has the potential to be dangerous.
 
 Files
 -----
 
-* server.sh / client.sh : short bash scripts which launch a fresh Postgres instance in the local directory
-* websocket.sh : run the websockify proxy, with automatic SSL cert generation.
-* replicant.py : prototype implementation of the replication protocol. This is the main file and it reimplements what we need of http://www.postgresql.org/docs/current/static/protocol-replication.html in Python.
-* replicant.js : postgres protocol in Javascript, from what was learned. This does not exist yet and would be a reimplementation of replication.py. It may or may not end up being needed.
-* ????.js: shim which does datagram-to-stream reconstruction (since WebSockets, despite running over TCP, do not have a stream mode, which postgres (and many other) protocols assume)
+TODO
+
 
 Links
 -----

@@ -5,7 +5,10 @@
 
 pushd $(dirname $0) >/dev/null; HERE=`pwd`; popd >/dev/null
 
-export PGDATABASE=$1
+if [ ! -z $1 ]; then
+  export PGDATABASE=$1
+fi
+
 if [ -z $PGDATABASE ]; then
   export PGDATABASE="postgres"  # initdb makes a default database called "postgres" so we just ride on that as the default
 fi
