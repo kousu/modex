@@ -234,19 +234,149 @@ _.extend(Where.prototype, Table.prototype);
 _.extend(Where.prototype, { insert: null, delete: null }) //disable insert and delete
 
 
-function And(A, B) {
+function And() { //<-- varargs
   var self = this;
   
-  self._A = A;
-  self._B = B;
+  // The arguments to And are a list of sources to monitor and take the intersection of 
+  var Sources = _(arguments).toArray();
+  var Sink = self;  // instead of 'self' we use 'Sink' for readability via parallel with 'Sources'.
+  
+  // Notation: for a multiset M
+  //  M[e]
+  // is the number of copies of 'e' that exist in M
+  // len(M) is the usual length of the multiset--counting each replication of each e
+  //  
+  // Note that we have this property (for a correct implementation)
+  // Sink[e] = min(Source[0][e], Source[1][e], ...)
+  //   (( e.g. {a,b,g,g} AND {b, c, g, g} AND {a, c, g} = {g} since g appears only once everywhere  <-- TODO: better example ))
+  
+  var cache = []
+  
+  // pending queues: each Source has an associated "pending" multiset of items that are as yet undecided. 
+  // Some explanation: 
+  //  this is a very highly stateful implementation of a very functionally pure operation
+  //  hence, we need to map the functional definition to a state invariant
+  // Our invariant, for And, is:
+  //  the number of copies of each item e in P[i] is equal to the *difference* between the number of e in Source[i] and the number of e in Sink
+  // By the 'min' property of And, we have P[i] = Source[i][e] - Sink[e] = Source[i][e] - min(Source[j][e] | j in 0...) 
+  //  so P[i] >= 0 ((since it is defined as a number in a set less the minimum of the numbers in that set))
+  // For our actual implementation, this means:
+  //  i) we only need to be concerned with storing positive numbers of elements (i.e., regular arrays)
+  // ii) if we were ever to go to a negative number of e, that is precisely when we need to instead adjust Sink to maintain the invariant (i.e. self.delete(e))
+  // and for good measure, I should mention that self.insert(e) occurs when there is a full house of 'e's across all Sources; so we actually have another invariant:
+  //iii) it is never the case that all P[i]s contain an e (((actually, for readability, i'll allow this briefly and then have a scanner do an adjustment)) 
+  var P = _(Sources).map(function(e) { return [] })
+  
+  // our initial cache and Pending queues are constructed simultaneously:
+  //  we scan our Sources and make matching sets (like in Go Fish, sort of), creating our cache (aka the multiset "Sink")
+  //  and whatever is left over is precisely the difference between Sink and Source (aka the pending queues)
+  
+  // recursively scan the Sources
+  // ummmm do we have to make Source[0] special?
+  // step 1) we need shallow copies of all the sources, because we're going to enforce our invariant by chewing up the current state of the sources
+  var S = _(Sources).map(function(S) { return _(S._cache).clone(); })
+  // step 2) scan
+  // i) pick an item to look for looking down the scan list until you find
+  //   do this by... looping up sources until you find one. popping the  (S[0], S[1], ..., S[m])
+  // ii) loop: find its index in all the other sources, if you can
+  // iii) pop the given locations ((in js this is the awkward .splice function)) and then
+  //      if all other sources provided an index, put one copy into Sink
+  //      else, put each copy into their respective P
+  // stop when all S are exhausted
+  
+  
+  var C = 0;
+  while(C < 15) {
+    C+=1;
+    console.warn(C)
+    //find some item to split up on
+    var item = _(S).find(function(s) { //NB: at this point, item is actually an array containing items (or undefined)
+      return s.length > 0;
+    })
+    
+    if(item === undefined) {
+      // no more items to split up!
+      break;
+    }
+    
+    
+    item = item[0]; //pick out the item to use
+    console.log("chose e = ", item, "to scan the other sets for");
+    
+    //TODO: there's some obvious minor optimizations we could make, like not scanning back over Sources that we know are already empty and not scanning the chosen source for its 0th element
+    // TODO: maybe sorting sources by their lengths is a good idea, since that guarantees that S[0] runs out last--or simultaneously last
+    
+    // now, find item in sources
+    var locations = _(S).map(function(s) { 
+      return s.findIndex(function(e) { 
+        return is(e, item);
+      })
+    })
+    
+    window.S = S; //DEBUG
+    
+    var passed = _.all(locations, function(p) { return p != -1 });
+    
+    //console.log("we found these locations:", locations);
+    console.log("we ", passed?"passed":"did not pass", "finding ", item, "in all sources");
+    
+    // now we pop all those items
+    var items = _(_.zip(locations, S)).map(function(l_s) {
+      var l = l_s[0]; //this is ugly because I'm trying to write python in javascript
+      var s = l_s[1]; // this could probably be done more js-esque.
+      
+      if(l != -1) {
+        // "return s.pop(l)"
+        console.log("SPLICING: ", s, "AT",l)
+        var item = s[l];
+        s.splice(l, 1);
+        return item;
+      } else {
+        return undefined;   // crufty missing value thing; this shouldn't really be here, but using map() demands we return *something*
+      }
+    });
+    
+    //console.log("we popped; now in one hand we have", items);
+    //console.info("and in the other, sources now look like", S);
+    
+    if(passed) {
+      // insert one copy into ourselves
+      cache.push(item);
+    } else {
+      // put the ugly ducklings on their associated Pending queues
+      _(_.zip(items, P)).forEach(function(e_p) {
+        var e = e_p[0];
+        var p = e_p[1];
+        
+        if(e !== undefined) {  // don't push the missing values, of course
+          p.push(e);
+        }
+      })
+    }
+  }
+  
+  console.assert(_.all(_(S).map(function(s) { s.length == 0 })), "when we're done initializing AND, S, the cloned Sources, should be empty")
+  delete S;
+  
+  // XXX test how this library handles 'undefined' a 'null'--especially multiple copies of 'undefined' and 'null', which are actually situations that might come up if you use 'delete'
+  // XXX make sure to handle the case where user just calls "new And()" which is legal and should be the empty multiset
+  // XXX what if S[0] is shorter than the others and runs out of items first? we need to not hardcode S[0] in!! -- for And this is alright but we want the same basic idea for Or and it won't be alright there)
   
   // Compute (A and B) as [e for e in A if e in B]
   //TODO: exploit sorting to make this faster
   // as written, this is an O(n^2) step
-  Table.call(this, A._cache.filter(function(a) {
-    return B._cache.indexOf(a) != -1;
-  }));
-    
+  // XXX it's also *wrong*: since A and B are supposed to be multisets, the proper result on A={g,g,g} B={g,g} is {g,g} but it will end up being {g,g,g} because for each of A's entries it will just see if it can find any copy of g in B
+  //Table.call(this, A._cache.filter(function(a) {
+  //  return B._cache.indexOf(a) != -1;
+  //}));
+  
+  
+  self._Sources = Sources; //DEBUG
+  self._P = P; //DEBUG
+  
+  
+  Table.call(this, cache);
+  
   // now, an incoming item can only come in if it is BOTH in A and in B
   //  that means we cannot add(self, e) until we have heard A.on("insert", e) and B.on("insert", e)
   // so, we maintain a limbo state, of items we're waiting to hear from A and from B about
@@ -258,64 +388,92 @@ function And(A, B) {
   //   B.on("delete", e)  --> we haven't heard about e yet; ignore
   //   -> if, before we hear about e from
   
-  // hmm how do I factor this nicely? clever closures, probably... maybe an array (so A_limbo == limbo[0], B_limbo==limbo[1]...; which makes generalizing to n ANDed terms easy) 
-  A_limbo = [];
-  B_limbo = [];
+  // now, for each Source, we need to set event listeners
+  //  we need to use a closure here to bind our ID for each Source (i.e. its index in S) against who it is, so that we know which P[i] to update
   
-  self._A.on("insert", function(e) {
-    // 1) check if e is in B's limbo
-    if((i = B_limbo.indexOf(e)) != -1) {
-      B_limbo.splice(i, 1);
-      self.insert(e);
-    } else {
-    // 2) we "haven't" seen e yet; queue it
-      A_limbo.push(e); //TODO: keep sortttted 
-    }
-  });
+  //I dislike the syntax I have to use for "zip"; in python "for a,b in zip(A,B)" is super readable. _(_.zip(A,B)).forEach(function(a_b) { var a = a_b[0]; var b = a_b[1]; ... } ) is a lot less 
   
-  self._A.on("delete", function(e) {
-    // three paths: if e is in limbo, eating the limbo copy has priority (XXX does this actually make sense? what if A and B both contain x initially, someone adds an x to A but not B, then deletes it from A.,. so in that case, yes, the 
-    //          else, if e is in the cache, take it out, because if just one of A or B fails to have e then A AND B has to fail as well
-    //    if e isn't in in us at all, ignore
+  _(_.zip(Sources, P)).forEach(function(s_p) {
+    var s = s_p[0];
+    var p = s_p[1];
     
-    // 1) check if e is in A's limbo
-    if((i = A_limbo.indexOf(e)) != -1) {
-      A_limbo.splice(i, 1);
+    // attach event listeners to s
+    s.on("insert", function(e) {
+      // remember: 'this' changes inside of 'on()'s
+      // insert e to p, then tell Sink to scan its pending queues again
+      p.push(e);
       
-    } else {
-    // 2) we "haven't" seen e yet; queue it
-      A_limbo.push(e); //TODO: keep sortttted 
-      self.delete(e);
-    }
-  });
-  
-  
-  self._B.on("insert", function(e) {
-    // 1) check if e is in B's limbo
-    if((i = A_limbo.indexOf(e)) != -1) {
-      A_limbo.splice(i, 1);
-      self.insert(e);
-    } else {
-    // 2) we "haven't" seen e yet; queue it
-      B_limbo.push(e); //TODO: keep sortttted 
-    }
-  });
-  
-  self._B.on("delete", function(e) {
-    // three paths: if e is in limbo, eating the limbo copy has priority (XXX does this actually make sense? what if A and B both contain x initially, someone adds an x to A but not B, then deletes it from A.,. so in that case, yes, the 
-    //          else, if e is in the cache, take it out, because if just one of A or B fails to have e then A AND B has to fail as well
-    //    if e isn't in in us at all, ignore
+      // as a premature optimization, we tell the scanner what item it's looking for apriori, so it can skip the outer scanning loop
+      // TODO: as another premature optimization, if we zipped the index of (s,p) = (S[i],P[i]),
+      //  instead of this brutish approach, we could only scan the non-i P-queues and break as soon as we don't turn up a finding
+      // actually, the alg below is wrong, because we *don't* pop unless we pop all
+      // okay, moving the 'if(passed)' made it correct, but now the map() is unused and would be better written as forEach()
+      
+      var item = e;
+      var S = P;
+      // XXX copied from above; this needs a refactor!!
+      // now, find item in sources
+      
+    var locations = _(S).map(function(s) { 
+      return s.findIndex(function(e) { 
+        return is(e, item);
+      })
+    })
     
-    // 1) check if e is in A's limbo
-    if((i = B_limbo.indexOf(e)) != -1) {
-      B_limbo.splice(i, 1);
+    var passed = _.all(locations, function(p) { return p != -1 });
+    
+    //console.log("we found these locations:", locations);
+    console.log("we ", passed?"passed":"did not pass", "finding ", item, "in all sources");
+    
+    if(passed) {
+    // now we pop all those items
+    var items = _(_.zip(locations, S)).map(function(l_s) {
+      var l = l_s[0]; //this is ugly because I'm trying to write python in javascript
+      var s = l_s[1]; // this could probably be done more js-esque.
       
-    } else {
-    // 2) we "haven't" seen e yet; queue it
-      B_limbo.push(e); //TODO: keep sortttted 
-      self.delete(e);
+      if(l != -1) {
+        // "return s.pop(l)"
+        console.log("SPLICING: ", s, "AT",l)
+        var item = s[l];
+        s.splice(l, 1);
+        return item;
+      } else {
+        return undefined;   // crufty missing value thing; this shouldn't really be here, but using map() demands we return *something*
+      }
+    });
+    
+      self.insert(e);
     }
-  });
+    
+    })
+    
+    
+    s.on("delete", function(e) {
+      // remember: 'this' changes inside of 'on()'s
+      // try to remove e from p; if we can't, then tell Sink it needs to delete e ((see class header for why))
+      console.log("AND DELETING FROM A SOURCE", e)
+      var i = -1;
+      if((i = p.findIndex(function(f) { return is(e,f ) })) != -1) {
+        console.log("eating from pending queue")
+        p.splice(i, 1);
+      } else {
+        console.log("eating from self")
+        self.delete(e);
+        
+        // in order to maintain the invariant, whcih is
+        // \forall i: P[i][e] == Source[i][e] - Sink[e],
+        // if we subtract 1 from sink
+        // then we must add 1 to each P[i]
+        // ..do we need to even do this to the current P[i]?? that would seem.. odd. 
+        // no. no we don't. because additionally we just deleted from Source[i]
+        // XXX this is a kludge we should jsut give up on zip() and just use for loops!!
+        P.forEach(function(_p) {
+          if(_p === p) { return } //skip the current P
+          _p.push(e);
+        }) 
+      }
+    })
+  })
 }
 _.extend(And.prototype, Table.prototype);
 
@@ -461,6 +619,30 @@ function Mean(parent) {
 _.extend(Mean.prototype, PourOver.Events);
 
 
+
+
+function test_AND() {
+
+var A = new Table(["g", "g", "h", 2]);
+var B = new Table([3, "h", "g", 9]);
+var AB = new And(A, B);
+
+console.log("AB = ", AB);
+
+window.A = A;  //DEBUG
+window.B = B;
+window.AB = AB;
+
+console.assert(_.isEqual(_.clone(AB._cache).sort(),  ["g", "h"]), "Initializing AND should get the right results and be able to handle multiple copies properly")
+
+B.insert("g"); //should cauase AB to contain
+
+console.assert(_.isEqual(_.clone(AB._cache).sort(),  ["g", "g", "h"]), "Inserting a dupe should be allowed and the pending queues should react appropriately--since these are multisets")
+
+B.delete("g"); //should cauase AB to contain
+console.assert(_.isEqual(_.clone(AB._cache).sort(),  ["g", "h"]), "Undoing the insert should make AND indistinguishable from its previous state")
+}
+
 function test_Table() {
 
 
@@ -580,7 +762,8 @@ console.log("there are",seated_eyes.value,"sitting eyes");
 console.log("and ",sitting_count.value,"sitting monsters");
 console.log("for an average of ",mean_eyes.value,"eyes");
 }
-test_Table();
+//test_Table()
+test_AND();
 
 
 /*************************
