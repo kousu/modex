@@ -355,7 +355,8 @@ function And() { //<-- varargs
     }
   }
   
-  console.assert(_.all(_(S).map(function(s) { s.length == 0 })), "when we're done initializing AND, S, the cloned Sources, should be empty")
+  console.assert(_.all(_(S).map(function(s) { return s.length == 0 })), "when we're done initializing AND, S, the cloned Sources, should be empty")
+  console.log(S);
   delete S;
   
   // XXX test how this library handles 'undefined' a 'null'--especially multiple copies of 'undefined' and 'null', which are actually situations that might come up if you use 'delete'
@@ -469,6 +470,15 @@ function And() { //<-- varargs
         // XXX this is a kludge we should jsut give up on zip() and just use for loops!!
         P.forEach(function(_p) {
           if(_p === p) { return } //skip the current P
+          // wait.. this is.. wrong...
+          // it's only correct *if the associated source actually contains e, and the right number of them*
+          // ..actually, the only ways we can end up in this branch are all if Source[k] contains e
+          /// BECAUSE if Source[k] doesn't contain e, then Source[k]
+          // is it possible for eg P[0] = {g}, P[1] = {}, P[2] = {}, then you S[1].delete(g), which triggers P[0] = {g,g}, P[1] = {}, P[2] = {g} but where S[2] never contained g at all?
+          // okay, how would I get this situation?
+          // S[0] = {g,h}, S[1] = {h}, S[2] = {h} --> AND = {h}
+          // // RIGHT:  in order for S[1].delete(g) to actually go through yet P[1] to not contain g, it must be true that g got gobbled up previously, i.e. every source contained a g
+          // so funnily enough this weird step is totally correct. 
           _p.push(e);
         }) 
       }
@@ -623,6 +633,11 @@ _.extend(Mean.prototype, PourOver.Events);
 
 function test_AND() {
 
+// I've intermixed blackbox, whitebox, and state-based tests here
+// They should really be separated by category (and esp. the work put in to make generating known states easy to then run a battery of tests again, instead of copypasting)
+// and into different functions
+// The nodejs/dat people know how to do testing for js
+
 var A = new Table(["g", "g", "h", 2]);
 var B = new Table([3, "h", "g", 9]);
 var AB = new And(A, B);
@@ -641,6 +656,92 @@ console.assert(_.isEqual(_.clone(AB._cache).sort(),  ["g", "g", "h"]), "Insertin
 
 B.delete("g"); //should cauase AB to contain
 console.assert(_.isEqual(_.clone(AB._cache).sort(),  ["g", "h"]), "Undoing the insert should make AND indistinguishable from its previous state")
+
+
+// Second round of tests
+
+// empty should be allowed!!
+var AB = new And();
+console.assert(_.isEqual(_.clone(AB._cache).sort(),  []), "An empty And should be allowed and should produce the empty set")
+
+
+// Third round of tests
+// wherein A and B do not overlap
+
+var A = new Table(["a", "b", "g", 2]);
+var B = new Table([3, "c", "h", 9]);
+var AB = new And(A, B);
+
+
+window.A = A;  //DEBUG
+window.B = B;
+window.AB = AB;
+
+console.log("AB = ", AB);
+
+console.assert(_.isEqual(_.clone(AB._cache).sort(),  []), "Initializing AND should get the right results and be able to handle multiple copies properly")
+
+B.insert("g"); //should cauase AB to contain
+
+console.assert(_.isEqual(_.clone(AB._cache).sort(),  ["g"]), "Inserting should react properly")
+
+B.delete("g"); //should cauase AB to contain
+console.assert(_.isEqual(_.clone(AB._cache).sort(),  []), "Undoing the insert should make AND indistinguishable from its previous state")
+
+
+B.delete("h")
+console.assert(_.isEqual(_.clone(AB._cache).sort(),  []), "eating something in B when there is no overlap should cause no reaction")
+console.assert(_.isEqual(_.clone(AB._P[0]).sort(),  [2, "a", "b", "g"]), "eating something in B should only cause the pending queue for B to change")
+console.assert(_.isEqual(_.clone(AB._P[1]).sort(),  [3, 9, "c"]), "eating something in B when there is no overlap should only cause the pending queue for B to change")
+
+
+B.insert("h")
+console.assert(_.isEqual(_.clone(AB._cache).sort(),  []), "eating something in B when there is no overlap should cause no reaction")
+console.assert(_.isEqual(_.clone(AB._P[0]).sort(),  [2, "a", "b", "g"]), "eating something in B when there is no overlap should cause no reaction")
+console.assert(_.isEqual(_.clone(AB._P[1]).sort(),  [3, 9, "c", "h"]), "eating something in B when there is no overlap should cause no reaction")
+
+
+//Fourth round of tests: is deleting
+var A = new Table(["h"]);
+var B = new Table(["h", "g"]);
+var C = new Table(["h"]);
+var ABC = new And(A, B, C);
+
+
+console.assert(_.isEqual(_.clone(ABC._cache).sort(),  ["h"]), "")
+console.assert(_.isEqual(_.clone(ABC._P[0]).sort(),  []), "")
+console.assert(_.isEqual(_.clone(ABC._P[1]).sort(),  ["g"]), "")
+console.assert(_.isEqual(_.clone(ABC._P[2]).sort(),  []), "")
+
+C.delete("g") //should have no effect
+console.assert(_.isEqual(_.clone(ABC._cache).sort(),  ["h"]), "")
+console.assert(_.isEqual(_.clone(ABC._P[0]).sort(),  []), "")
+console.assert(_.isEqual(_.clone(ABC._P[1]).sort(),  ["g"]), "")
+console.assert(_.isEqual(_.clone(ABC._P[2]).sort(),  []), "")
+
+B.delete("g") //shoudl only affect the pending queue
+console.assert(_.isEqual(_.clone(ABC._cache).sort(),  ["h"]), "")
+console.assert(_.isEqual(_.clone(ABC._P[0]).sort(),  []), "")
+console.assert(_.isEqual(_.clone(ABC._P[1]).sort(),  []), "")
+console.assert(_.isEqual(_.clone(ABC._P[2]).sort(),  []), "")
+
+B.insert("g") //should reset..
+console.assert(_.isEqual(_.clone(ABC._cache).sort(),  ["h"]), "")
+console.assert(_.isEqual(_.clone(ABC._P[0]).sort(),  []), "")
+console.assert(_.isEqual(_.clone(ABC._P[1]).sort(),  ["g"]), "")
+console.assert(_.isEqual(_.clone(ABC._P[2]).sort(),  []), "")
+
+A.delete("h") //should shift the now-missing h from the AND onto the pending queues that *aren't* A's
+console.assert(_.isEqual(_.clone(ABC._cache).sort(),  []), "")
+console.assert(_.isEqual(_.clone(ABC._P[0]).sort(),  []), "")
+console.assert(_.isEqual(_.clone(ABC._P[1]).sort(),  ["g","h"]), "")
+console.assert(_.isEqual(_.clone(ABC._P[2]).sort(),  ["h"]), "")
+
+window.A = A;  //DEBUG
+window.B = B;
+window.C = C;
+window.AB = AB;
+
 }
 
 function test_Table() {
