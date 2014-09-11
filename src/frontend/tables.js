@@ -156,6 +156,10 @@ findIndex: function(e) {
 //operators
 _.extend(Table.prototype, {
 // filtering operators
+//NB: these are intentionally restricted to binary operators,
+// even though some (And/Or/etc) allow, because it's easier to write
+// and because there's an ugly assymetry to A.and(B,C,D) which is not
+// in A.and(B) and not in new And(A,B,C,D)
 and: function(B) { return new And(this, B); },
 or: function(B) { return new Or(this, B); },
 where: function(pred) { return new Where(this, pred); },
@@ -274,7 +278,6 @@ function And() { //<-- varargs
   // recursively scan the Sources
   // ummmm do we have to make Source[0] special?
   // step 1) we need shallow copies of all the sources, because we're going to enforce our invariant by chewing up the current state of the sources
-  var S = _(Sources).map(function(S) { return _(S._cache).clone(); })
   // step 2) scan
   // i) pick an item to look for looking down the scan list until you find
   //   do this by... looping up sources until you find one. popping the  (S[0], S[1], ..., S[m])
@@ -284,80 +287,33 @@ function And() { //<-- varargs
   //      else, put each copy into their respective P
   // stop when all S are exhausted
   
+  var items = common_items(_(Sources).pluck("_cache")); //XXX pluck()ing _cache is awkwardness imposed by Tables (aka Multisets? aka CacheSets aka DataflowMultisets aka I haven't a good name) not being instances of arrays
   
-  var C = 0;
-  while(C < 15) {
-    C+=1;
-    console.warn(C)
-    //find some item to split up on
-    var item = _(S).find(function(s) { //NB: at this point, item is actually an array containing items (or undefined)
-      return s.length > 0;
-    })
+  iterForEach(items, function(value) {
+    var found = value.found;
+    var item = value.item;
     
-    if(item === undefined) {
-      // no more items to split up!
-      break;
-    }
-    
-    
-    item = item[0]; //pick out the item to use
-    console.log("chose e = ", item, "to scan the other sets for");
-    
-    //TODO: there's some obvious minor optimizations we could make, like not scanning back over Sources that we know are already empty and not scanning the chosen source for its 0th element
-    // TODO: maybe sorting sources by their lengths is a good idea, since that guarantees that S[0] runs out last--or simultaneously last
-    
-    // now, find item in sources
-    var locations = _(S).map(function(s) { 
-      return s.findIndex(function(e) { 
-        return is(e, item);
-      })
-    })
-    
-    window.S = S; //DEBUG
-    
-    var passed = _.all(locations, function(p) { return p != -1 });
-    
-    //console.log("we found these locations:", locations);
-    console.log("we ", passed?"passed":"did not pass", "finding ", item, "in all sources");
-    
-    // now we pop all those items
-    var items = _(_.zip(locations, S)).map(function(l_s) {
-      var l = l_s[0]; //this is ugly because I'm trying to write python in javascript
-      var s = l_s[1]; // this could probably be done more js-esque.
-      
-      if(l != -1) {
-        // "return s.pop(l)"
-        console.log("SPLICING: ", s, "AT",l)
-        var item = s[l];
-        s.splice(l, 1);
-        return item;
-      } else {
-        return undefined;   // crufty missing value thing; this shouldn't really be here, but using map() demands we return *something*
-      }
-    });
-    
-    //console.log("we popped; now in one hand we have", items);
-    //console.info("and in the other, sources now look like", S);
+    var passed = _.all(found);
     
     if(passed) {
+      // if item is in every Source, the And passes it into itself
       // insert one copy into ourselves
       cache.push(item);
     } else {
-      // put the ugly ducklings on their associated Pending queues
-      _(_.zip(items, P)).forEach(function(e_p) {
-        var e = e_p[0];
-        var p = e_p[1];
+      // otherweise, item is "incomplete" so we move one copy of it 
+      // to each pending queue it came from
+      _(_.zip(found, P)).forEach(function(f_p) {
+        var f = f_p[0];
+        var p = f_p[1];
         
-        if(e !== undefined) {  // don't push the missing values, of course
-          p.push(e);
+        if(f) {  // only push values that were found, of course
+          p.push(item);
         }
       })
     }
-  }
+  })
   
-  console.assert(_.all(_(S).map(function(s) { return s.length == 0 })), "when we're done initializing AND, S, the cloned Sources, should be empty")
-  console.log(S);
-  delete S;
+  
   
   // XXX test how this library handles 'undefined' a 'null'--especially multiple copies of 'undefined' and 'null', which are actually situations that might come up if you use 'delete'
   // XXX make sure to handle the case where user just calls "new And()" which is legal and should be the empty multiset
@@ -404,61 +360,53 @@ function And() { //<-- varargs
       // insert e to p, then tell Sink to scan its pending queues again
       p.push(e);
       
+      // on insert: we need to find scan the pending queues to see if
+      // 
+      //  ---can we use common_items here??
+      // if we use common_items we'll end up in a problem
+      // because though it will tel us what items are common, it won't tell us
+      // we could
+      
       // as a premature optimization, we tell the scanner what item it's looking for apriori, so it can skip the outer scanning loop
       // TODO: as another premature optimization, if we zipped the index of (s,p) = (S[i],P[i]),
       //  instead of this brutish approach, we could only scan the non-i P-queues and break as soon as we don't turn up a finding
       // actually, the alg below is wrong, because we *don't* pop unless we pop all
       // okay, moving the 'if(passed)' made it correct, but now the map() is unused and would be better written as forEach()
       
-      var item = e;
-      var S = P;
       // XXX copied from above; this needs a refactor!!
       // now, find item in sources
       
-    var locations = _(S).map(function(s) { 
-      return s.findIndex(function(e) { 
-        return is(e, item);
+      var locations = _(P).map(function(s) { 
+        return s.indexOf_Is(e);
       })
-    })
     
-    var passed = _.all(locations, function(p) { return p != -1 });
+      var passed = _.all(locations, function(p) { return p != -1 });
     
-    //console.log("we found these locations:", locations);
-    console.log("we ", passed?"passed":"did not pass", "finding ", item, "in all sources");
-    
-    if(passed) {
-    // now we pop all those items
-    var items = _(_.zip(locations, S)).map(function(l_s) {
-      var l = l_s[0]; //this is ugly because I'm trying to write python in javascript
-      var s = l_s[1]; // this could probably be done more js-esque.
-      
-      if(l != -1) {
-        // "return s.pop(l)"
-        console.log("SPLICING: ", s, "AT",l)
-        var item = s[l];
-        s.splice(l, 1);
-        return item;
-      } else {
-        return undefined;   // crufty missing value thing; this shouldn't really be here, but using map() demands we return *something*
+      if(passed) {
+        // now we pop all those items off the pending queue
+        _(_.zip(locations, P)).forEach(function(l_p) {
+          var l = l_p[0];
+          var p = l_p[1]; //warning! shadows the previous 'p' 
+          
+          if(l != -1) {
+            p.removeAt(l);
+          }
+        });
+        
+        // and move them into self        
+        self.insert(e);
       }
-    });
-    
-      self.insert(e);
-    }
-    
     })
     
     
     s.on("delete", function(e) {
       // remember: 'this' changes inside of 'on()'s
-      // try to remove e from p; if we can't, then tell Sink it needs to delete e ((see class header for why))
-      console.log("AND DELETING FROM A SOURCE", e)
+      // try to remove e from p; if we can't, 
+      // then tell Sink it needs to delete e ((see class header for why))
       var i = -1;
-      if((i = p.findIndex(function(f) { return is(e,f ) })) != -1) {
-        console.log("eating from pending queue")
-        p.splice(i, 1);
+      if((i = p.indexOf_Is(e)) != -1) {
+        p.removeAt(i)
       } else {
-        console.log("eating from self")
         self.delete(e);
         
         // in order to maintain the invariant, whcih is
@@ -492,32 +440,117 @@ _.extend(And.prototype, Table.prototype);
 function Or(A, B) {
   var self = this;
   
-  Table.call(this, A._cache.concat(B._cache));
+  Table.call(this, cache);
   
-  self._A = A;
-  self._B = B;
-  
-  // Compute (A or B) as (A concat B) - (A and B) ((where this set- only removes *one* copy per item))
-  //TODO: exploit sorting to make this faster
-  // as written, this is an O(n^2) step
-  // in fact, it's *even worse* here than in And(), since not only is there the n^2 And step, then there's a tedious n^2 filtering out step
-  // this pains me so much
-  
-  
-  intersection = self._A._cache.filter(function(a) {
-    return self._B._cache.indexOf(a) != -1;
-  });
-  
-  //console.debug("naive unioning left", intersection, " duplicated; erasing");
-  // remove exactly one copy of each intersection element from the cache    
-  for(i = 0; i<intersection.length; i++) {
-    e = intersection[i];
-    t = self._cache.indexOf(e);
-    self._cache.splice(t, 1);
-  }
   
 }
 _.extend(Or.prototype, Table.prototype);
+
+
+/* kludge to use is() (i.e., currently _.isEqual()) in searching for elements
+ *
+ */
+Array.prototype.indexOf_Is = function(e) {
+  return this.findIndex(function(g) { return is(g, e) });
+}
+
+/* kludge; there's probably a more js-onic way to handle arrays ? */
+Array.prototype.removeAt = function(i) {
+  var e = this[i];
+  this.splice(i, 1);
+  return e;
+}
+
+
+
+function iterForEach(items, f) {
+  /* helper that hides the ugly edge cases of iterators
+   
+   */
+  // XXX this should be a method on the iterator type... except there is no iterator type
+  // I want to say while(!v.done) except I don't have a v until I call next once,
+  //  but I can't call next() and start processing blindly because v might be done on the first step!
+  // python handles this common edge case fluidly by making "for e in g()" understand how to break at the first step
+  // I have to hand-roll the same for js, it seems? 
+  
+  while(true) { // aaah why isn't there like a ... do-maybe()? How 
+  // the https://developer.mozilla.org/en-US/docs/Web/JavaScript/Guide/The_Iterator_protocol is thin on the syntax for actually pumping an iterator...
+    var v = items.next();
+    if(v.done) { break; }
+    
+    f(v.value);
+  }
+}
+
+
+function common_items(S) {
+ /* an iterator which returns tuples of the items as found in
+  *  the operation is sort of like zip, except it zips down to common items, with equality defined by is() above
+  *
+  */
+ // S is an array of sets (sets passed as arrays)
+ // the arrays will be chewed up, with each step yielding  (in implementation-dependent order! don't rely on it!) 
+ //  an item and a list of booleans indicating whether that item was found in each set
+ // {item: ..., found: [.., .., ..., ]}
+ //TODO: figure out how to call functions in js while setting the arguments array; 
+ // ie. I really want to do def common_items(*S) but I don't know how to make that not awkward in js
+ 
+  // clone the input, since this algorithm destructively edits it
+  var S = _(S).map(function(S) { return _(S).clone(); })
+  // XXX...is _(S).clone() enough here? I think clone() is only a one-level-deep clone, right? so I need to explicitly say the map() to get two-levels-deep...
+
+  return {
+    next: function() {
+
+
+      //find some item to split up on
+      var available_set = _(S).find(function(s) { //NB: at this point, item is actually an array containing items (or undefined)
+        return s.length > 0;
+      })
+
+
+      if(available_set !== undefined) {
+
+        var item = available_set[0]; //pick out the item to use. DO NOT USE pop() HERE.
+
+        //TODO: there's some obvious minor optimizations we could make, like not scanning back over Sources that we know are already empty and not scanning the chosen source for its 0th element
+        // TODO: maybe sorting sources by their lengths is a good idea, since that guarantees that S[0] runs out last--or simultaneously last
+
+        // try to locate one copy of item in each source 
+        var locations = _(S).map(function(s) { 
+          return s.indexOf_Is(item);
+        })
+
+        // squish down the locations to simple booleans
+        // returning the locations is meaningless, externally, since the locations change as we nom up S and bear little relation to the initially passed
+        var found = _.map(locations, function(p) { return p != -1 });
+        
+        // now we pop all those items
+        // XXX using zip() is almost as verbose as just using an explicit for loop
+        _(_.zip(locations, S)).forEach(function(l_s) {
+          var l = l_s[0]; //this is ugly because I'm trying to write python in javascript
+          var s = l_s[1]; // this could probably be done more js-esque.
+          
+          if(l != -1) {
+            s.removeAt(l);
+          }
+        });
+
+
+
+        return {value: {item: item, found: found}, done: false};
+      } else {
+        // no more items to split up!
+        console.assert(_.all(_(S).map(function(s) { return s.length == 0 })), "when we're done initializing AND, S, the cloned Sources, should be empty")
+        delete S;
+
+        return {value: null, done: true};
+      }
+    }
+  }
+
+}
+
 
 
 
@@ -642,8 +675,6 @@ var A = new Table(["g", "g", "h", 2]);
 var B = new Table([3, "h", "g", 9]);
 var AB = new And(A, B);
 
-console.log("AB = ", AB);
-
 window.A = A;  //DEBUG
 window.B = B;
 window.AB = AB;
@@ -676,8 +707,6 @@ var AB = new And(A, B);
 window.A = A;  //DEBUG
 window.B = B;
 window.AB = AB;
-
-console.log("AB = ", AB);
 
 console.assert(_.isEqual(_.clone(AB._cache).sort(),  []), "Initializing AND should get the right results and be able to handle multiple copies properly")
 
