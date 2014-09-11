@@ -162,6 +162,7 @@ _.extend(Table.prototype, {
 // in A.and(B) and not in new And(A,B,C,D)
 and: function(B) { return new And(this, B); },
 or: function(B) { return new Or(this, B); },
+not: function(B) { return new Not(this, B); },
 where: function(pred) { return new Where(this, pred); },
 distinct: function() { return new Distinct(this); },
 
@@ -332,6 +333,15 @@ function And() { //<-- varargs
   self._P = P; //DEBUG
   
   
+  // and Or is similar to all this, except instead of counting the difference Source - Sink
+  // it should count the opposite: Sink - Source
+  //  because for Or Sink[e] = max(Source[i][e] | i ...), so Sink[e] >= Source[i][e] 
+  // it adjusts (with insert, instead of with delete) when a source breaches the max
+  // and otherwise
+  
+  // Not is also similar:
+  // Not can be written "A and (not B)" so everything for not is the same as for and except inserts and deletes are reversed for B(?)
+  
   Table.call(this, cache);
   
   // now, an incoming item can only come in if it is BOTH in A and in B
@@ -445,6 +455,126 @@ function Or(A, B) {
   
 }
 _.extend(Or.prototype, Table.prototype);
+
+
+
+
+
+function NotSimple(S, Z) {
+  /* Implementation of the "Not" operator (Not(S,Z) := S \ Z)
+   *  using a single pending queue
+   *
+   */
+  var self = this;
+  
+  // the external invariant this class should maintain is
+  //   self[e] = S[e] - Z[e] and self[e] > 0 or 
+  //   self[e] = 0
+  //  we have these state changes:
+  // S.insert(e) or Z.delete(e) cause (S[e] - Z[e])++
+  // S.delete(e) or Z.insert(e) cause (S[e] - Z[e])--
+  // but to minimize data and time we don't actually want to keep
+  //   entire copies of S[e] or Z[e] and require scans to work with them
+  // instead we actually maintain the internal invariant
+  //   S[e] - Z[e] = self[e] - P[e]   and
+  //   self[e] >= 0
+  // So we map the external state changes to this:
+  // S.insert(e) or Z.delete(e) cause P[e]-- unless P[e]=0, in which case self[e]++
+  // S.delete(e) or Z.insert(e) cause S[e]-- unless S[e]=0, in which case P[e]++
+  //  observe: These transitions guarnatee self[e], P[e] >= 0
+  // TODO: more explicit proof of correctness
+  
+  var cache = []
+  var P = [] // pending queue, which is not really a queue at all
+  
+  
+  self._P = P;
+  var items = common_items([S._cache, Z._cache]);
+  iterForEach(items, function(value) {
+    var found = value.found;
+    var item = value.item;
+    
+    if(_.all(found)) {    
+      // common items are *ignored* because they cancel each other out, with Not()
+    } else if(found[0]) {
+      // only found in S, so in S\Z
+      cache.push(item);
+    } else if(found[1]) {
+      // only in Z, so not in S\Z but we need to record that there is an unbalanced item
+      P.push(item);
+    }
+  })
+  
+  // step 2) scan
+  // i) pick an item to look for looking down the scan list until you find
+  //   do this by... looping up sources until you find one. popping the  (S[0], S[1], ..., S[m])
+  // ii) loop: find its index in all the other sources, if you can
+  // iii) pop the given locations ((in js this is the awkward .splice function)) and then
+  //      if all other sources provided an index, put one copy into Sink
+  //      else, put each copy into their respective P
+  // stop when all S are exhausted
+  
+  
+  // In python I would write this as a chain of generators:
+  //  items(), which makes itemsetes tuples as long as the number of  ((and internally is chewing its input lists up, since that is simpler and maybe even more efficient than the functional style of marking certain items as )) [ aside: the great power of python's generators (besides their officially sanctioned misuse as coroutines) is that you can hide stateful code inside something that produces pure-functional values ]
+  //  then some code that for each
+  // then a function which takes a function to do on each item
+  
+  Table.call(this, cache);
+  
+  function Not_push(e) { //WARNING: DO NOT USE `this` HERE
+    var i=-1;
+    if((i = P.indexOf_Is(e)) != -1) {
+      P.removeAt(i);
+    } else {
+      self.insert(e);
+    }
+  }
+  
+  // TODO: factor these? since it's copypasted?
+  function Not_pop(e) { //WARNING: DO NOT USE `this` HERE
+    var i=-1;
+    if((i = self._cache.indexOf_Is(e)) != -1) {
+      self.delete(e); //XXX this redoes the scan we just did!!
+      // XXX maybe 'delete' should return 'true' if it succeeded?
+    } else {
+      P.push(e);
+    }
+  }
+  
+  S.on("insert", Not_push)
+  Z.on("delete", Not_push)
+  S.on("delete", Not_pop)
+  Z.on("insert", Not_pop)
+  
+}
+_.extend(NotSimple.prototype, Table.prototype);
+
+function NotComplicated(S, Z) {
+  /* Implementation of the "Not" operator (Not(S,Z) := S \ Z)
+   *  using a a pending queue for each source
+   *  this code is longer than NotSimple, but points the way
+   *  towards a factorization of all classes that use pending queues
+   *
+   */
+  var self = this;
+  
+  // The idea here is roughly the same,
+  // except we would like to have P[S] and P[Z] queues which in some sense "legitimately" track the state
+  // so, a {insert,delete} on S only affects P[S], and same for Z
+  // this is actually *more code* but it..feels..more correct.
+  
+  throw "NotImplemented"; 
+  
+  
+  Table.call(this, cache);
+
+}
+_.extend(NotComplicated.prototype, Table.prototype);
+
+var Not = NotSimple
+
+
 
 
 /* kludge to use is() (i.e., currently _.isEqual()) in searching for elements
@@ -662,6 +792,68 @@ function Mean(parent) {
 _.extend(Mean.prototype, PourOver.Events);
 
 
+
+function test_NOT() {
+
+
+var A = new Table(["g", "g", "h", 2]);
+var B = new Table([3, "h", "g", 9]);
+
+var N = new Not(A,B);
+
+console.assert(_.isEqual(_.clone(N._cache).sort(),  [2, "g"]), "")
+
+
+//whitebox test:
+// removing from A should
+
+A.delete("g");
+console.assert(_.isEqual(_.clone(N._cache).sort(),  [2]), "")
+
+A.delete("g"); //not a no-op, but no "observable" difference in N
+console.assert(_.isEqual(_.clone(N._cache).sort(),  [2]), "")
+A.delete("g"); //should be a no-op
+
+A.insert("g");
+A.insert("g");
+A.insert("g");
+console.assert(_.isEqual(_.clone(N._cache).sort(),  [2,"g","g"]), "")
+
+B.insert("g");
+console.assert(_.isEqual(_.clone(N._cache).sort(),  [2,"g"]), "")
+
+
+A.insert("g");
+console.assert(_.isEqual(_.clone(N._cache).sort(),  [2,"g","g"]), "")
+B.insert("g");
+console.assert(_.isEqual(_.clone(N._cache).sort(),  [2,"g"]), "")
+
+// inserting a bunch to B should shadow further inserts to A
+B.insert("g");
+B.insert("g");
+B.insert("g");
+B.insert("g");
+B.insert("g");
+B.insert("g"); // at this point, we should be at -5
+
+console.assert(_.isEqual(_.clone(N._cache).sort(),  [2]), "")
+A.insert("g"); //-4
+console.assert(_.isEqual(_.clone(N._cache).sort(),  [2]), "")
+A.insert("g"); //-3
+console.assert(_.isEqual(_.clone(N._cache).sort(),  [2]), "")
+A.insert("g"); //-2
+console.assert(_.isEqual(_.clone(N._cache).sort(),  [2]), "")
+A.insert("g"); //-1
+console.assert(_.isEqual(_.clone(N._cache).sort(),  [2]), "")
+A.insert("g"); //0
+console.assert(_.isEqual(_.clone(N._cache).sort(),  [2]), "")
+A.insert("g"); //1
+console.assert(_.isEqual(_.clone(N._cache).sort(),  [2,"g"]), "")
+A.insert("g"); //2
+console.assert(_.isEqual(_.clone(N._cache).sort(),  [2,"g","g"]), "")
+
+
+}
 
 
 function test_AND() {
@@ -894,6 +1086,7 @@ console.log("for an average of ",mean_eyes.value,"eyes");
 }
 //test_Table()
 test_AND();
+test_NOT();
 
 
 /*************************
