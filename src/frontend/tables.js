@@ -1,14 +1,38 @@
-/* Table: an in-memory in-javascript database system based around multisets instead of around tables or documents (though any can be translated to the others) and around dataflow programming.
+/* Table: an in-memory in-javascript database system modelling multisets instead of tables or documents (though all three translate easily to the others) and heavily supporting dataflow programming (lately cum 'functional reactive', though you could extend this with non-pure-function operators).
  *
  * The system provides subtypes (Where, and, or, not, columns, distinct, sum, average, min, max, groupBy, ...).
  * with each type maintaining a live cache of its current state, as computed from whatever it is based on (necessarily, then, the supported operations are limited to whatever can be efficiently computed on a stream; limited to roughly what SQL provides, in fact).
  
- * The main concept here is the caching, which is a lot like postgres's materialized view; but unlike postgres's implementation, this does edge-triggered processing: it reacts to changes pushed from a source instead of having to poll a source to get a complete new copy.
+ * The main concept here is the caching, which is a lot like postgres's materialized view or Elm's or PD's per-item state memory; but unlike postgres's implementation, this does edge-triggered processing: it reacts to changes pushed from a source instead of having to poll a source to get a complete new copy.
  *  Since JS is pointers-everywhere, for the types which compute new sets (Where, and, or, not) are storage-cheap: each element only actually exists once; the storage requirement for each type is only sizeof(js_ptr)*cache.length. The other types do not have this guarantee (in particular, Columns has to create new objects)
  *
  *
  * Dependent types listen to their parent's "insert" and "delete" events; when a parent's cache is updated it fires an event, which causes a chain reaction of dependents to check if they should update their cache, and fire their events.
  *
+ */
+ 
+ 
+/* TODO
+
+1) break into multiple files
+figure out how to do unit testing properly
+ and uh, do we need to do a build system or somtehine? prolly...
+  purpose of a js build system: 1) minification 2) to put everything into one file for easy including
+2) make Tables into _Tables and make Tables a clone of Tables with its insert and delete removed
+ --> which forces us to use Table.prototoype.<f>.call(this, <args>) instead, but its worth it to make the dependent types "immutable"
+
+
+3) finish NotComplex
+
+note down that the whole pending-queue thing
+also note down that the pending-queue types are probably(?) less efficient than simply using where() effectively
+
+
+figure out how to dispose
+
+
+refactor and/or because they are sooooo similar because they implement parallel but opposite operations
+
  *
  * Garbage Collection:
  *  - it is important that dependees hold strong references to their parents and that parents hold (at most) weak references to their children
