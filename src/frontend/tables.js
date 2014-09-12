@@ -22,7 +22,11 @@
  *  but if you
  *    delete v; (or otherwise lose its reference)
  *  you do not care about either v or the anonymous Columns instance either, and expect them to be garbage collected; however, because they would have registered event listeners with their parents, their parents are holding a pointer to something that eventually leads to them; these pointers must therefore be weak references or else we will leak memory.
- 
+
+ * TODO: some sort of SortedArray type which has, like, indexOf ops that aren't linear scans (which are slow, on the datasets I'm planning to shove into this) merge() and filter() ops to make
+ * TODO: a multiset class, which counts instances ((the reason I've gone to lengths to avoid that is so that all I depend on is regular arrays) 
+ * TODO: a Database class which is a collection of tables so that we
+         needn't specify what table to replicate
  * TODO: clean up terminology; decide between parents,children and dependees,dependents
  * TODO: look into writing asynchronously, to avoid bogging down the browser with long computations
  */ 
@@ -178,6 +182,8 @@ mean: function() { return new Mean(this); },
 // variance: is hard to stream; i think, not impossible, but definitely difficult
 // cumsum: cumulative sum is useful but tricky ((also it is not quite a reduce and not quite a map)); it's obvious what to do on insert(), but what do you do with a delete()? do you findIndex() and then shift everything in cache above there down? do you assume sets are unsorted?
 
+// is this going to be an inner or an outer join??
+join: function(that, fields) { return new Join(this, that, fields); }
 })
 
 _.extend(Table.prototype, PourOver.Events); // TODO: use Backbone.Events instead, since that's the original source
@@ -237,6 +243,8 @@ function Where(parent, pred) {
 }
 _.extend(Where.prototype, Table.prototype);
 _.extend(Where.prototype, { insert: null, delete: null }) //disable insert and delete
+ //TODO: better to write this as "disable"
+
 
 
 function And() { //<-- varargs
@@ -386,9 +394,7 @@ function And() { //<-- varargs
       // XXX copied from above; this needs a refactor!!
       // now, find item in sources
       
-      var locations = _(P).map(function(s) { 
-        return s.indexOf_Is(e);
-      })
+      var locations = indexOfMany_Is(P, e)
     
       var passed = _.all(locations, function(p) { return p != -1 });
     
@@ -425,7 +431,7 @@ function And() { //<-- varargs
         // then we must add 1 to each P[i]
         // ..do we need to even do this to the current P[i]?? that would seem.. odd. 
         // no. no we don't. because additionally we just deleted from Source[i]
-        // XXX this is a kludge we should jsut give up on zip() and just use for loops!!
+        // XXX this is a kludge we should just give up on zip() and just use for loops!!
         P.forEach(function(_p) {
           if(_p === p) { return } //skip the current P
           // wait.. this is.. wrong...
@@ -445,13 +451,122 @@ function And() { //<-- varargs
 }
 _.extend(And.prototype, Table.prototype);
 
-// I really need some sort of SortedArray type which has, like, merge() and filter() ops
+
 
 function Or(A, B) {
   var self = this;
   
+  // The arguments to And are a list of sources to monitor and take the intersection of 
+  var Sources = _(arguments).toArray(); //XXX copypasta
+  var Sink = self;  // instead of 'self' we use 'Sink' for readability via parallel with 'Sources'.
+  
+  // Or is reversed from And:
+  // instead of P[i] = Source[i] - Sink
+  // it's       P[i] = Sink - Source[i]
+  // so, when P is positive it means there are more 'e's in Sink than in Source
+  // and P is disallowed from being negative: Source[i] <= Sink because Sink = Max(Source[i] for i in ...)
+  // because???????????
+  
+  var cache = [] //XXX copypasta
+  var P = _(Sources).map(function(e) { return [] }) //XXX copypasta
+  
+  var items = common_items(_(Sources).pluck("_cache")); //XXX copypasta
+  
+  iterForEach(items, function(value) {
+    var found = value.found;
+    var item = value.item;
+    
+    var passed = _.any(found); //Note the key difference from And(): we use any() here instead of all()
+    
+    
+    //TODO: this could be cleaned up if instead of doing cache.push() before Table.call() and self.insert() after, we just used self.insert(); the only awkwardness is that that calls self.trigger("insert") before we're fully constructed --except js is single-threaded so it shouldn't be possible for any events to exist.
+    
+    if(passed) {
+      // if item is in any Source, the Or includes it
+      cache.push(item);
+      
+      // to maintain the invariant
+      // every pending quefound item needs to end up grow
+      // push() above is Sink++ 
+      // so source P[i] ++ too
+      // since p counts how many below the max s is
+      //   delete
+      _(_.zip(found, P)).forEach(function(f_p) {
+        var f = f_p[0];
+        var p = f_p[1];
+        
+        if(!f) { p.push(item) }
+      })
+      // 
+    } // no else, because if none are found there's nothing else to do
+    // If this seems asymmetrical from And(), remember that we've factored part of the operation--the part that noms identical items so that they don't cause redundant inserts, into common_items()
+    // or look at it this way: P[i] counts the number of deletes on each source
+    // and at init there are none
+    //..wait..
+    // uhhh
+  })
+  
+  
+  
   Table.call(this, cache);
   
+  _(_.zip(Sources, P)).forEach(function(s_p) {
+    var s = s_p[0];
+    var p = s_p[1];
+    
+    
+    s.on("insert", function(e) {
+      // when you get an insert, you either
+      //  -> push to self
+      // or 
+      //  -> push to a pending thing(???)
+        
+      //1) check if e exists in our pending queue. if so, eat it from there silently
+      //2) else, this is a *new* insert
+        
+      var i = -1;
+      if((i = p.indexOf_Is(e)) != -1) {
+        p.removeAt(i);
+      } else {
+        self.insert(e);
+        
+        P.forEach(function(_p) {
+          if(_p === p) { return } //skip the current 
+          _p.push(e);
+        }) 
+      }
+    })
+    
+    // Ppi] is the difference between the number in each
+    
+    s.on("delete", function(e) {
+      // push to p... 
+      p.push(e);
+      
+      // now, find out if pushing e caused a pending set to complete
+      // 
+      // if so, we have one full delete:
+      // i.e. every s has lost one e, so the maximum number of es should be reduced by 1
+      // 
+      var locations = indexOfMany_Is(P, e); 
+      var passed = _.all(locations.map(function(l) { return l != -1 } ))
+      if(passed) {
+        //XXX copypasted
+        
+        // now we pop all those items off the pending queue
+        _(_.zip(locations, P)).forEach(function(l_p) {
+          var l = l_p[0];
+          var p = l_p[1]; //warning! shadows the previous 'p' 
+          
+          if(l != -1) {
+            p.removeAt(l);
+          }
+        });
+        
+        self.delete(e);
+      }
+    })
+  })
   
 }
 _.extend(Or.prototype, Table.prototype);
@@ -576,6 +691,14 @@ var Not = NotSimple
 
 
 
+/* kludge: find e across all sets in S
+ */
+function indexOfMany_Is(S, e) {
+  return _(S).map(function(s) { 
+    return s.indexOf_Is(e);
+  })
+}
+
 
 /* kludge to use is() (i.e., currently _.isEqual()) in searching for elements
  *
@@ -647,9 +770,7 @@ function common_items(S) {
         // TODO: maybe sorting sources by their lengths is a good idea, since that guarantees that S[0] runs out last--or simultaneously last
 
         // try to locate one copy of item in each source 
-        var locations = _(S).map(function(s) { 
-          return s.indexOf_Is(item);
-        })
+        var locations = indexOfMany_Is(S, item)
 
         // squish down the locations to simple booleans
         // returning the locations is meaningless, externally, since the locations change as we nom up S and bear little relation to the initially passed
@@ -965,6 +1086,42 @@ window.AB = AB;
 
 }
 
+function test_OR() {
+
+
+var A = new Table(["g", "g", "h", 2]);
+var B = new Table([3, "h", "g", 9]);
+var AB = new Or(A, B);
+
+console.assert(_.isEqual(_.clone(AB._cache).sort(),  [2,3,9,"g", "g", "h"]), "Initializing OR should get the right results and be able to handle multiple copies properly")
+
+B.insert("g"); //should cauase AB to contain
+console.assert(_.isEqual(_.clone(AB._cache).sort(),  [2,3,9,"g", "g", "h"]), "Inserting a shadowed element should result in no difference")
+
+
+B.insert("g"); //should cauase AB to contain
+console.assert(_.isEqual(_.clone(AB._cache).sort(),  [2,3,9,"g", "g", "g", "h"]), "..but the next insert of the same should spill over")
+
+
+var A = new Table(["g", "g", "h", 2]);
+var B = new Table([3, "h", "g", 9]);
+var AB = new Or(A, B);
+
+A.insert("g"); //should cauase AB to contain
+console.assert(_.isEqual(_.clone(AB._cache).sort(),  [2,3,9,"g", "g", "g", "h"]), "Conversely, inserting to A is *not* shadowed by B so it should immediately grow")
+
+
+B.insert("g"); //should cauase AB to contain
+B.insert("g"); //should cauase AB to contain
+console.assert(_.isEqual(_.clone(AB._cache).sort(),  [2,3,9,"g", "g", "g", "h"]), "making inserts to B shadowed twice over")
+
+B.insert("g"); //should cauase AB to contain
+console.assert(_.isEqual(_.clone(AB._cache).sort(),  [2,3,9,"g", "g", "g", "g", "h"]), "but thrice does cause an insert")
+
+
+}
+
+
 function test_Table() {
 
 
@@ -1087,6 +1244,7 @@ console.log("for an average of ",mean_eyes.value,"eyes");
 //test_Table()
 test_AND();
 test_NOT();
+test_OR();
 
 
 /*************************
