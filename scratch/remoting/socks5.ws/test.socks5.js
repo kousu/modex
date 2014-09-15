@@ -15,7 +15,7 @@ var prx = new SOCKS5("ws://localhost:8081", target)
 
 prx.onopen = function() {
   console.log("Requesting HTTP from ", target)
-  prx.send("GET /jam HTTP/1.1\r\n\r\n")
+  prx.send("GET / HTTP/1.1\r\n\r\n")
   
   prx.recv().then(function(e) {
     console.log("Response:")

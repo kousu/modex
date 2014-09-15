@@ -4,7 +4,7 @@
  *  The missing parts are around the types of authentication:
  *   does NOT support GSSAPI, [and has no means for plugging in new ].
  *
- * Depends on WebSocketStream (which depends on ayepromise).
+ * Depends on WebSocketStream (which depends on ayepromise and some WebSocket library).
  */
  
 /* TODO
@@ -32,8 +32,9 @@
 }(this, function () {
     'use strict';
 
-var WebSocketStream = require("./websocketstream.js") 
-
+if(!WebSocketStream) {
+  var WebSocketStream = require("./websocketstream.js") 
+}
 
 /* Utility Routines */
 

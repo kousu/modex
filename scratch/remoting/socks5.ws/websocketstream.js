@@ -13,7 +13,9 @@
 if(!WebSocket) {
   var WebSocket = require("ws");
 }
-var ayepromise = require("./ayepromise.js")
+if(!ayepromise) {
+  var ayepromise = require("ayepromise")
+}
 
 /*
 this class handles the buffering that WebSocket doesn't
