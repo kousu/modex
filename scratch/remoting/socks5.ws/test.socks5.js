@@ -29,6 +29,10 @@ prx.onerror = function(e) {
 }
 
 
+setTimeout(function() {
+  console.log("timeout")
+  prx.close();
+}, 15*1000)
 /*
 or proxy via 
 

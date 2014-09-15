@@ -364,6 +364,9 @@ SOCKS5.prototype.send = function(d) {
   return this._ws.send(d)
 }
 
+SOCKS5.prototype.close = function() {
+  return this._ws.close();
+}
 
 SOCKS5.prototype.onopen = function(evt) {} 
 SOCKS5.prototype.onclose = function(evt) {} 

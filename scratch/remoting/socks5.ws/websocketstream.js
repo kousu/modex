@@ -181,6 +181,9 @@ WebSocketStream.prototype.recvline = function() {
   return promise;
 }
 
+WebSocketStream.prototype.close = function() {
+  return this._ws.close();
+}
 
 return WebSocketStream;
 }));
