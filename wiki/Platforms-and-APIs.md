@@ -250,6 +250,8 @@ Remote Query Protocols
 * [SparQL](http://www.w3.org/TR/sparql11-query/) - for querying document databases
     * [Example 2](http://www.ibm.com/developerworks/xml/library/j-sparql/) 
 
+[AcademicTorrents](http://academictorrents.com/) ([code](https://github.com/AcademicTorrents)) is an fantastic system, thinly built on bittorrent, for archiving datasets.
+
 ## Data Types
 
 * [rfc3339: DateTimes](http://www.ietf.org/rfc/rfc3339.txt)
