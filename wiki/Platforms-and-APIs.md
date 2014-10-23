@@ -301,6 +301,7 @@ This software list has been outsourced to [Statistics.md](Statistics.md).
 Collaboraties (laboratories for collaboration) are our key to reproducible science.
 
 * [StackExchange](http://stackoverflow.com/) - _they've thought long and hard -- and have measured -- about the right way to do comment systems; the link escapes me right now, though -kousu_
+* [GitLab](https://about.gitlab.com/) -- a github clone that you can host yourself
 
 * [DIY.org](http://diy.org/)
 * [jsFiddle](http://jsfiddle.net) -- [example](http://jsfiddle.net/sharavsambuu/s7QjN/9/light/)
