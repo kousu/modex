@@ -34,17 +34,32 @@ HTML5 is extremely powerful. It has a lot of new widgets (under form elements: s
     * [pie-chart](https://github.com/gajus/pie-chart)
     * [interactive histograms](https://github.com/gajus/interdependent-interactive-histograms)
     * ["slopegraph"](http://bl.ocks.org/biovisualize/4348024) (actually a very basic network visualization)
-    * [demo of building a reusable component from a nonreusable one](http://bl.ocks.org/milroc/5519642)
+    * [demo of building a reusable component vfrom a nonreusable one](http://bl.ocks.org/milroc/5519642)
     * [messy errorbar scatterplot](http://bl.ocks.org/chrisbrich/5044999)
     * ["hello world" in reusable d3](http://bl.ocks.org/cpbotha/5073718)
     * [simple bar chart](http://jsfiddle.net/johnwun/8hSGP/)
-  * [NVD3](http://nvd3.org/)
+  * [NVD3](http://nvd3.org/) -- apparently out of date, see ["NVD3 project status"](https://groups.google.com/forum/#!topic/d3-js/zOwWkiMaQ60) on the d3-js mailing list.
   * [c3](http://c3js.org/)
   * [dcjs](https://github.com/dc-js/dc.js) -- d3 married to crossfilter for multidimensional, interactively linked, charts
+  * http://forio.com/contour/ / https://github.com/forio/contour
+  * http://metricsgraphicsjs.org/
+  * http://racker.github.io/glimpse.js-website/
+  * http://tenxer.github.io/xcharts/
+  * https://github.com/imaginea/uvCharts
+  * https://github.com/robikshrestha/ChartLibrary
+  * https://github.com/affini-tech/ChartFactory
+  * https://github.com/akngs/dviz
+  * https://github.com/sirrice/gg/
+  * https://github.com/rameshvs/jsplotlib
+  * https://github.com/bergcloud/lp-chart
+  * https://github.com/mhemesath/r2d3/
+  * https://github.com/openbrainsrc/Radian
+  * https://github.com/michael/dance
+  * https://github.com/mlarocca/Dynamic-Charts
 * Charts (linegraphs, scatterplots):
+  * [dimplejs](http://dimplejs.org/)
   * [graphite](http://graphite.wikidot.com/) -- targetted at large-scale, realtime feeds
   * [morris](http://morrisjs.github.io/morris.js/)
-  * [dimplejs](http://dimplejs.org/) - _this looks pretty underpowered_
   * [Vega](https://github.com/trifacta/vega)
     * [Vincent](https://github.com/wrobstory/vincent) - _A Python to Vega translator_
   * [Miso](http://misoproject.com/)   - _this one looks super promising_
@@ -53,8 +68,8 @@ HTML5 is extremely powerful. It has a lot of new widgets (under form elements: s
   * [Chart.JS](http://www.chartjs.org/)
   * [dygraphs](http://dygraphs.com/)
 * Timeseries
-  * Square's [cubism.js](http://square.github.io/cubism/) 
   * [Rickshaw](http://code.shutterstock.com/rickshaw/)
+  * Square's [cubism.js](http://square.github.io/cubism/) 
   * [Epoch](http://fastly.github.io/epoch/)
 * Networks:
   * [SigmaJS](http://sigmajs.org/)
