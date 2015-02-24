@@ -59,6 +59,8 @@ A model is "simplifiable" if it can be replaced and still get "the same" outputs
 (Modelica)[http://openmodelica.org] has some interesting ideas on plugging submodels together, which we can steal for great justice.
 Historically, coarse-graining has been the sugardaddy of western science. Science was all about discovering immutable, eternal laws, like "the earth orbits in an ellipse plus or minus some noise", though now there's more of a recognition that in many systems--especially complex ones--exceptions are the norm.
 
+Along the lines of modelica: [OpenMI](http://openmi.org), which is an API. It's sorttttta like CORBA but for agent and geographical models.
+
 # Parameter Sweeps
 
 Much of our use-case is to explore models which have large numbers of inputs and large number of outputs. The exploration is performed by something called a "parameter sweep", which samples some (but almost never all! definitely not all if any parameters are continuous) points from the input space and runs the models at those points.
